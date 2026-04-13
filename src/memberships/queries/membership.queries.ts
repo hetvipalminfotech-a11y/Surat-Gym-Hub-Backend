@@ -36,12 +36,12 @@ export const MembershipPlanQueries = {
   SOFT_DELETE: `
     UPDATE membership_plANS 
     SET deleted_at = NOW(), status = 'INACTIVE'
-    WHERE id = ? AND deleted_at IS NULL
+    WHERE id = ? 
   `,
 
   CHECK_USED: `
     SELECT id FROM members 
-    WHERE membership_plan_id = ? AND deleted_at IS NULL LIMIT 1
+    WHERE membership_plan_id = ? AND deleted_at IS NULL AND status IN ('ACTIVE', 'FROZEN') LIMIT 1
   `,
 
   FIND_WITH_DELETED: `

@@ -22,6 +22,7 @@ import { UserRole } from '../common/enums';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { request } from 'express';
 import { ChangePlanDto } from './dto/change-plan.dto';
+import { MemberFilterDto } from './dto/member-filter.dto';
 
 interface AuthRequest extends Request {
   user: {
@@ -37,22 +38,10 @@ export class MembersController {
   constructor(private readonly membersService: MembersService) {}
 
   /** ✅ Get all members (filters + pagination) */
-  @Get()
-  async findAll(
-    @Query('search') search?: string,
-    @Query('status') status?: string,
-    @Query('planId') planId?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.membersService.findAll({
-      search,
-      status,
-      planId,
-      page,
-      limit,
-    });
-  }
+ @Get()
+async findAll(@Query() query: MemberFilterDto) {
+  return this.membersService.findAll(query);
+}
 
   /** ✅ Get single member */
   @Get(':id')

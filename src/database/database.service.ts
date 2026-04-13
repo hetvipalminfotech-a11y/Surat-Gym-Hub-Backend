@@ -8,6 +8,7 @@ type SqlParam = string | number | boolean | null | Date;
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   // private connection!: mysql.Connection;
   pool!: mysql.Pool;
+  // connection: any;
 
   async onModuleInit() {
    this.pool = mysql.createPool({

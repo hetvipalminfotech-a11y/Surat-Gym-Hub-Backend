@@ -181,7 +181,7 @@ export class MembershipsService {
     const used = usedResult as unknown as { id: number }[];
 
     if (used.length > 0) {
-      throw new BadRequestException('Plan is in use and cannot be deleted');
+      throw new BadRequestException('Plan is assigned to active members and cannot be deleted');
     }
 
     await this.db.execute(

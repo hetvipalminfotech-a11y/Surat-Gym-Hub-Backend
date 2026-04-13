@@ -1,41 +1,50 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  BadRequestException,
+} from '@nestjs/common';
 import { ReportsService } from './reports.service';
-import { RolesGuard } from '../common/guards/roles.guard';
-import { Roles } from '../common/decorators/roles.decorator';
-import { UserRole } from '../common/enums';
 import { ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiBearerAuth()
 @Controller('reports')
-@UseGuards(RolesGuard)
-@Roles(UserRole.ADMIN)
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
+  // ==============================
+  // 📊 Report 1 — Daily Summary
+  // ==============================
   @Get('daily-summary')
   async getDailySummary(@Query('date') date: string) {
-    const reportDate = date || new Date().toISOString().split('T')[0];
-    return this.reportsService.getDailySummary(reportDate);
+    if (!date) {
+      throw new BadRequestException('date is required (YYYY-MM-DD)');
+    }
+
+    return this.reportsService.getDailySummary(date);
   }
 
-  @Get('membership-status')
-  async getMembershipStatus() {
-    return this.reportsService.getMembershipStatus();
+  // ==============================
+  // 📊 Report 2 — Membership Expiry
+  // ==============================
+  @Get('membership-expiry')
+  async getMembershipExpiry() {
+    return this.reportsService.getMembershipExpiryReport();
   }
 
+  // ==============================
+  // 📊 Report 3 — Trainer Utilisation
+  // ==============================
   @Get('trainer-utilisation')
-  async getTrainerUtilisation(
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
-  ) {
-    return this.reportsService.getTrainerUtilisation(startDate, endDate);
+  async getTrainerUtilisation() {
+    return this.reportsService.getTrainerUtilisationReport();
   }
 
-  @Get('revenue')
-  async getRevenueAnalysis(
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string,
-  ) {
-    return this.reportsService.getRevenueAnalysis(startDate, endDate);
+  // ==============================
+  // 📊 Report 4 — Revenue Analysis
+  // ==============================
+  @Get('revenue-analysis')
+  async getRevenueAnalysis() {
+    return this.reportsService.getRevenueAnalysisReport();
   }
 }

@@ -9,6 +9,7 @@ import { DatabaseService } from '../database/database.service';
 import { BookSessionDto } from './dto/book-session.dto';
 import { SessionStatus, SessionSource, MembershipStatus, SlotStatus } from '../common/enums';
 import { ResultSetHeader, RowDataPacket } from 'mysql2';
+import { PtSessionQueries } from './queries/pt-sessions.queries';
 
 export interface MemberRow {
   id: number;
@@ -95,7 +96,7 @@ async findAll(query: any) {
     // COUNT QUERY
     // -----------------------
     const countResult = await this.db.query<{ total: number }>(
-      `SELECT COUNT(*) as total FROM pt_sessions ps WHERE ${whereSQL}`,
+      PtSessionQueries.FIND_ALL_COUNT(whereSQL),
       params
     );
 
@@ -105,17 +106,7 @@ async findAll(query: any) {
     // DATA QUERY
     // -----------------------
     const sessions = await this.db.query(
-      `SELECT 
-          ps.*, 
-          m.name as member_name, 
-          u.name as trainer_name
-       FROM pt_sessions ps
-       JOIN members m ON ps.member_id = m.id
-       JOIN trainers t ON ps.trainer_id = t.id
-       JOIN users u ON t.user_id = u.id
-       WHERE ${whereSQL}
-       ORDER BY ps.session_date DESC, ps.created_at DESC
-       LIMIT ${limit} OFFSET ${offset}`,
+   PtSessionQueries.FIND_ALL(whereSQL, limit, offset),
       params
     );
 
@@ -141,12 +132,7 @@ async findAll(query: any) {
   /** Get single session */
   async findOne(id: number) {
     const sessions = await this.db.query<SessionRow>(
-      `SELECT ps.*, m.name as member_name, u.name as trainer_name
-       FROM pt_sessions ps
-       JOIN members m ON ps.member_id = m.id
-       JOIN trainers t ON ps.trainer_id = t.id
-       JOIN users u ON t.user_id = u.id
-       WHERE ps.id = ? AND ps.deleted_at IS NULL`,
+        PtSessionQueries.FIND_ONE,
       [id],
     );
 
@@ -172,9 +158,8 @@ async bookSession(dto: BookSessionDto) {
   return this.db.transaction(async (conn) => {
     // 🔒 STEP 1: LOCK MEMBER
     const [memberRows] = await conn.query<RowDataPacket[]>(
-      `SELECT * FROM members 
-       WHERE id = ? AND deleted_at IS NULL 
-       FOR UPDATE`,
+     PtSessionQueries.LOCK_MEMBER,
+
       [dto.memberId],
     );
 
@@ -191,9 +176,7 @@ async bookSession(dto: BookSessionDto) {
 
     // 🔒 STEP 2: LOCK SLOT (and derive trainer from slot)
     const [slotRows] = await conn.query<RowDataPacket[]>(
-      `SELECT * FROM trainer_time_slots 
-       WHERE id = ? AND deleted_at IS NULL 
-       FOR UPDATE`,
+       PtSessionQueries.LOCK_SLOT,
       [dto.slotId],
     );
 
@@ -209,9 +192,7 @@ async bookSession(dto: BookSessionDto) {
 
     // 🔒 STEP 3: LOCK TRAINER (derived from slot)
     const [trainerRows] = await conn.query<RowDataPacket[]>(
-      `SELECT * FROM trainers 
-       WHERE id = ? AND status = 'ACTIVE' 
-       FOR UPDATE`,
+     PtSessionQueries.LOCK_TRAINER,
       [slot.trainer_id],
     );
 
@@ -232,9 +213,7 @@ async bookSession(dto: BookSessionDto) {
       source = SessionSource.PLAN;
 
       const [updateMember] = await conn.execute<ResultSetHeader>(
-        `UPDATE members 
-         SET remaining_pt_sessions = remaining_pt_sessions - 1
-         WHERE id = ? AND remaining_pt_sessions > 0`,
+      PtSessionQueries.DECREMENT_MEMBER_SESSION,
         [dto.memberId],
       );
 
@@ -248,9 +227,7 @@ async bookSession(dto: BookSessionDto) {
 
     // 🔥 STEP 5: UPDATE SLOT → BOOKED
     const [slotUpdate] = await conn.execute<ResultSetHeader>(
-      `UPDATE trainer_time_slots 
-       SET status = ? 
-       WHERE id = ? AND status = ?`,
+     PtSessionQueries.CHECK_SLOT_BOOKED,
       [SlotStatus.BOOKED, dto.slotId, SlotStatus.AVAILABLE],
     );
 
@@ -262,11 +239,7 @@ async bookSession(dto: BookSessionDto) {
     const year = new Date().getFullYear();
 
     const [lastRows] = await conn.query<RowDataPacket[]>(
-      `SELECT session_code 
-       FROM pt_sessions 
-       WHERE session_code LIKE ? 
-       ORDER BY id DESC 
-       LIMIT 1`,
+    PtSessionQueries.GENERATE_SESSION_CODE,
       [`PT-${year}-%`],
     );
 
@@ -282,11 +255,8 @@ async bookSession(dto: BookSessionDto) {
 
     // 🔥 STEP 7: INSERT SESSION
     const [insert] = await conn.execute<ResultSetHeader>(
-      `INSERT INTO pt_sessions
-       (session_code, member_id, trainer_id, slot_id,
-        session_type, session_source, amount_charged,
-        session_date, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    PtSessionQueries.INSERT_SESSION,
+
       [
         sessionCode,
         dto.memberId,
@@ -302,7 +272,7 @@ async bookSession(dto: BookSessionDto) {
 
     // 🔥 STEP 8: RETURN RESULT
     const [resultRows] = await conn.query<RowDataPacket[]>(
-      `SELECT * FROM pt_sessions WHERE id = ?`,
+    PtSessionQueries.GET_SESSION_BY_ID,
       [insert.insertId],
     );
 
@@ -318,9 +288,7 @@ async cancelSession(id: number) {
   return this.db.transaction(async (conn) => {
     // 🔒 STEP 1: LOCK SESSION
     const [sessionRows] = await conn.query<RowDataPacket[]>(
-      `SELECT * FROM pt_sessions 
-       WHERE id = ? AND deleted_at IS NULL 
-       FOR UPDATE`,
+     PtSessionQueries.LOCK_CANCEL_STATUS,
       [id],
     );
 
@@ -341,26 +309,20 @@ async cancelSession(id: number) {
 
     // 🔥 STEP 3: UPDATE SESSION
     await conn.execute(
-      `UPDATE pt_sessions 
-       SET status = ? 
-       WHERE id = ?`,
+      SessionStatus.CANCELLED,
       [SessionStatus.CANCELLED, id],
     );
 
     // 🔥 STEP 4: FREE SLOT
     await conn.execute(
-      `UPDATE trainer_time_slots 
-       SET status = ? 
-       WHERE id = ?`,
+      SlotStatus.AVAILABLE,
       [SlotStatus.AVAILABLE, session.slot_id],
     );
 
     // 🔥 STEP 5: RESTORE MEMBER SESSION (ONLY PLAN)
     if (session.session_source === SessionSource.PLAN) {
       await conn.execute(
-        `UPDATE members 
-         SET remaining_pt_sessions = remaining_pt_sessions + 1 
-         WHERE id = ?`,
+       PtSessionQueries.RESTORE_MEMBER_SESSION,
         [session.member_id],
       );
     }
@@ -374,9 +336,7 @@ async completeSession(id: number) {
   return this.db.transaction(async (conn) => {
     // 🔒 STEP 1: LOCK SESSION
     const [rows] = await conn.query<RowDataPacket[]>(
-      `SELECT * FROM pt_sessions 
-       WHERE id = ? AND deleted_at IS NULL 
-       FOR UPDATE`,
+     PtSessionQueries.COMPLETE_SESSION,
       [id],
     );
 
@@ -397,15 +357,13 @@ async completeSession(id: number) {
     }
     // 🔥 STEP 3: UPDATE STATUS
     await conn.execute(
-      `UPDATE pt_sessions 
-       SET status = ? 
-       WHERE id = ?`,
+      PtSessionQueries.UPDATE_PT_SESSION_STATUS,
       [SessionStatus.COMPLETED, id],
     );
 
     // 🔥 STEP 4: RETURN UPDATED SESSION
     const [updatedRows] = await conn.query<RowDataPacket[]>(
-      `SELECT * FROM pt_sessions WHERE id = ?`,
+      PtSessionQueries.GET_SESSION_BY_ID,
       [id],
     );
 
@@ -426,9 +384,7 @@ async completeSession(id: number) {
   return this.db.transaction(async (conn) => {
     // 1️⃣ Update session → NO_SHOW
     await conn.execute(
-      `UPDATE pt_sessions 
-       SET status = ? 
-       WHERE id = ?`,
+     PtSessionQueries.UPDATE_SESSION_NO_SHOW,
       [SessionStatus.NO_SHOW, id],
     );
 
@@ -450,8 +406,7 @@ async rescheduleSession(sessionId: number, newSlotId: number) {
   return this.db.transaction(async (conn) => {
     // 1️⃣ Get new slot
     const [newSlotRows] = await conn.query<RowDataPacket[]>(
-      `SELECT * FROM trainer_time_slots 
-       WHERE id = ? AND status = ?`,
+      PtSessionQueries.GET_SLOT_BY_ID,
       [newSlotId, SlotStatus.AVAILABLE],
     );
 
@@ -463,17 +418,13 @@ async rescheduleSession(sessionId: number, newSlotId: number) {
 
     // 2️⃣ Free old slot
     await conn.execute(
-      `UPDATE trainer_time_slots 
-       SET status = ? 
-       WHERE id = ?`,
+     PtSessionQueries.FREE_SLOT, 
       [SlotStatus.AVAILABLE, session.slot_id],
     );
 
     // 3️⃣ Book new slot (CONCURRENCY SAFE)
     const [updateSlot] = await conn.execute<ResultSetHeader>(
-      `UPDATE trainer_time_slots 
-       SET status = ? 
-       WHERE id = ? AND status = ?`,
+     PtSessionQueries.UPDATE_TRAINER_TIME_SLOT,
       [SlotStatus.BOOKED, newSlotId, SlotStatus.AVAILABLE],
     );
 
@@ -483,9 +434,7 @@ async rescheduleSession(sessionId: number, newSlotId: number) {
 
     // 4️⃣ Update session
     await conn.execute(
-      `UPDATE pt_sessions 
-       SET slot_id = ?, session_date = ?
-       WHERE id = ?`,
+     PtSessionQueries.UPDATE_SESSION_SLOT,
       [newSlotId, newSlot.slot_date, sessionId],
     );
 
@@ -495,13 +444,7 @@ async rescheduleSession(sessionId: number, newSlotId: number) {
   /** Get sessions for a specific member */
   async getMemberSessions(memberId: number) {
     return this.db.query<SessionRow>(
-      `SELECT ps.*, m.name as member_name, u.name as trainer_name
-       FROM pt_sessions ps
-       JOIN members m ON ps.member_id = m.id
-       JOIN trainers t ON ps.trainer_id = t.id
-       JOIN users u ON t.user_id = u.id
-       WHERE ps.member_id = ? AND ps.deleted_at IS NULL
-       ORDER BY ps.session_date DESC`,
+      PtSessionQueries.GET_MEMBER_SESSIONS,
       [memberId],
     );
   }

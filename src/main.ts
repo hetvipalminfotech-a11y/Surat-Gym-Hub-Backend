@@ -12,7 +12,7 @@ async function bootstrap() {
 
   // Enable CORS for frontend
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: true,
     credentials: true,
   });
 
@@ -46,9 +46,7 @@ async function bootstrap() {
 
   // Global response format
   app.useGlobalInterceptors(new ResponseInterceptor());
-app.useGlobalInterceptors(
-  new ClassSerializerInterceptor(app.get(Reflector)),
-);
+  app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
   // Global error handler
   app.useGlobalFilters(new GlobalExceptionFilter());
 
