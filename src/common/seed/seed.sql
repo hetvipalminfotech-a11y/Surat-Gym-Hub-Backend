@@ -56,11 +56,11 @@ INSERT INTO trainers (user_id, specialization, session_rate, commission_rate, sh
 INSERT INTO members
 (member_code,name,phone,email,age,gender,health_conditions,emergency_contact_phone,membership_plan_id,start_date,end_date,status,remaining_pt_sessions,created_by)
 VALUES
-('MEM-2026-001','Amit Patel','9876543001','amit@gmail.com',25,'MALE',NULL,'9876000001',2,'2026-03-01','2026-04-01','ACTIVE',4,1),
+('MEM-2026-001','Amit Patel','9876543001','amit@gmail.com',25,'MALE',NULL,'9876000001',2,'2026-03-01','2026-04-30','ACTIVE',4,1),
 ('MEM-2026-002','Neha Shah','9876543002','neha@gmail.com',22,'FEMALE',NULL,'9876000002',3,'2026-03-05','2026-06-05','ACTIVE',12,1),
 ('MEM-2026-003','Raj Desai','9876543003','raj@gmail.com',30,'MALE','Knee pain','9876000003',4,'2026-02-01','2026-08-01','ACTIVE',24,1),
 ('MEM-2026-004','Pooja Mehta','9876543004','pooja@gmail.com',28,'FEMALE',NULL,'9876000004',5,'2026-01-15','2027-01-15','ACTIVE',48,1),
-('MEM-2026-005','Kiran Joshi','9876543005','kiran@gmail.com',35,'MALE','Back pain','9876000005',2,'2026-03-10','2026-04-10','ACTIVE',4,1),
+('MEM-2026-005','Kiran Joshi','9876543005','kiran@gmail.com',35,'MALE','Back pain','9876000005',2,'2026-03-10','2026-04-30','ACTIVE',4,1),
 ('MEM-2026-006','Riya Sharma','9876543006','riya@gmail.com',24,'FEMALE',NULL,'9876000006',1,'2026-04-01','2026-05-01','ACTIVE',0,1),
 ('MEM-2026-007','Deepak Verma','9876543007','deepak@gmail.com',32,'MALE',NULL,'9876000007',3,'2026-03-15','2026-06-15','ACTIVE',12,1),
 ('MEM-2026-008','Sonal Patel','9876543008','sonal@gmail.com',27,'FEMALE','Asthma','9876000008',4,'2026-02-20','2026-08-20','ACTIVE',24,1),
