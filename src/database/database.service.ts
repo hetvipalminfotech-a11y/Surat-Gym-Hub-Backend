@@ -62,7 +62,12 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     query: string,
     params: SqlParam[] = [],
   ): Promise<T> {
-    const [result] = await this.pool.execute(query, params);
+    const safeParams = params.map(p =>
+      p instanceof Date
+        ? p.toISOString().slice(0, 19).replace('T', ' ')
+        : p
+    );
+    const [result] = await this.pool.execute(query, safeParams);
     return result as T;
   }
 
