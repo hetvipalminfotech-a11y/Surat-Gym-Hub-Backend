@@ -42,69 +42,67 @@ export interface PlanRow {
 
 @Injectable()
 export class MembersService {
-  constructor(private db: DatabaseService) {}
+  constructor(private db: DatabaseService) { }
+  async findAll(query: MemberFilterDto) {
+    // Parse pagination safely
+    const page = Number(query.page) > 0 ? Number(query.page) : 1;
+    const limit =
+      Number(query.limit) > 0 && Number(query.limit) <= 100
+        ? Number(query.limit)
+        : 20;
 
-  /** ✅ Get all members */
- async findAll(query: MemberFilterDto) {
-  // ✅ Parse pagination safely
-  const page = Number(query.page) > 0 ? Number(query.page) : 1;
-  const limit =
-    Number(query.limit) > 0 && Number(query.limit) <= 100
-      ? Number(query.limit)
-      : 20;
+    const offset = (page - 1) * limit;
 
-  const offset = (page - 1) * limit;
+    //  WHERE conditions
+    const whereClauses = ['m.deleted_at IS NULL'];
+    const params: (string | number)[] = [];
 
-  // ✅ WHERE conditions
-  const whereClauses = ['m.deleted_at IS NULL'];
-  const params: (string | number)[] = [];
+    if (query.search) {
+      whereClauses.push(
+        '(m.name LIKE ? OR m.phone LIKE ? OR m.member_code LIKE ?)',
+      );
+      const search = `%${query.search}%`;
+      params.push(search, search, search);
+    }
 
-  if (query.search) {
-    whereClauses.push(
-      '(m.name LIKE ? OR m.phone LIKE ? OR m.member_code LIKE ?)',
-    );
-    const search = `%${query.search}%`;
-    params.push(search, search, search);
+    if (query.status) {
+      whereClauses.push('m.status = ?');
+      params.push(query.status);
+    }
+
+    if (query.planId) {
+      whereClauses.push('m.membership_plan_id = ?');
+      params.push(Number(query.planId));
+    }
+
+    const whereSQL = whereClauses.join(' AND ');
+
+    //  COUNT
+    const countRows = (await this.db.execute(
+      MemberQueries.FIND_ALL_COUNT(whereSQL),
+      params,
+    )) as RowDataPacket[];
+
+    const total = Number(countRows[0]?.total ?? 0);
+
+    //  DATA
+    const rows = (await this.db.execute(
+      MemberQueries.FIND_ALL_DATA(whereSQL, limit, offset),
+      params,
+    )) as RowDataPacket[];
+
+    return {
+      members: rows,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
-  if (query.status) {
-    whereClauses.push('m.status = ?');
-    params.push(query.status);
-  }
 
-  if (query.planId) {
-    whereClauses.push('m.membership_plan_id = ?');
-    params.push(Number(query.planId));
-  }
-
-  const whereSQL = whereClauses.join(' AND ');
-
-  // ✅ COUNT
-  const countRows = (await this.db.execute(
-    MemberQueries.FIND_ALL_COUNT(whereSQL),
-    params,
-  )) as RowDataPacket[];
-
-  const total = Number(countRows[0]?.total ?? 0);
-
-  // ✅ DATA
-  const rows = (await this.db.execute(
-    MemberQueries.FIND_ALL_DATA(whereSQL, limit, offset),
-    params,
-  )) as RowDataPacket[];
-
-  return {
-    members: rows,
-    pagination: {
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    },
-  };
-}
-
-  /** ✅ Get one member */
   async findOne(id: number) {
     const rows = (await this.db.execute(MemberQueries.FIND_ONE, [
       id,
@@ -117,119 +115,117 @@ export class MembersService {
     return rows[0];
   }
 
-  /** ✅ Create member */
+
   async create(dto: CreateMemberDto, createdBy: number) {
-  if (!createdBy) {
-    throw new BadRequestException('User not authenticated');
-  }
+    if (!createdBy) {
+      throw new BadRequestException('User not authenticated');
+    }
+    const planRows = (await this.db.execute(
+      MemberQueries.RENEW_GET_PLAN,
+      [dto.membershipPlanId],
+    )) as RowDataPacket[];
 
-  // ✅ Validate plan
-  const planRows = (await this.db.execute(
-    MemberQueries.RENEW_GET_PLAN,
-    [dto.membershipPlanId],
-  )) as RowDataPacket[];
+    if (planRows.length === 0) {
+      throw new BadRequestException('Membership plan not found');
+    }
 
-  if (planRows.length === 0) {
-    throw new BadRequestException('Membership plan not found');
-  }
+    const plan = planRows[0] as PlanRow;
 
-  const plan = planRows[0] as PlanRow;
+    //  Generate member code
+    const year = new Date().getFullYear();
 
-  // ✅ Generate member code
-  const year = new Date().getFullYear();
+    const lastRows = (await this.db.execute(
+      MemberQueries.FIND_MEMBER_CODE,
+      [`MEM-${year}-%`],
+    )) as RowDataPacket[];
 
-  const lastRows = (await this.db.execute(
-    MemberQueries.FIND_MEMBER_CODE,
-    [`MEM-${year}-%`],
-  )) as RowDataPacket[];
+    let next = 1;
+    if (lastRows.length > 0) {
+      const lastCode = String(lastRows[0].member_code);
+      const num = Number(lastCode.split('-')[2]);
+      next = num + 1;
+    }
 
-  let next = 1;
-  if (lastRows.length > 0) {
-    const lastCode = String(lastRows[0].member_code);
-    const num = Number(lastCode.split('-')[2]);
-    next = num + 1;
-  }
+    const memberCode = `MEM-${year}-${String(next).padStart(3, '0')}`;
 
-  const memberCode = `MEM-${year}-${String(next).padStart(3, '0')}`;
+    // Date handling
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-  // ✅ Date handling
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+    const start = new Date(dto.startDate + 'T00:00:00');
 
-  const start = new Date(dto.startDate + 'T00:00:00');
+    // Prevent past date
+    if (start < today) {
+      throw new BadRequestException('Start date cannot be in the past');
+    }
 
-  // ❌ Prevent past date
-  if (start < today) {
-    throw new BadRequestException('Start date cannot be in the past');
-  }
+    // Calculate end date
+    const end = new Date(start);
+    end.setMonth(end.getMonth() + plan.duration_months);
 
-  // ✅ Calculate end date
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + plan.duration_months);
+    if (end <= start) {
+      throw new BadRequestException('End date must be after start date');
+    }
 
-  if (end <= start) {
-    throw new BadRequestException('End date must be after start date');
-  }
+    const startDate = start.toISOString().split('T')[0];
+    const endDate = end.toISOString().split('T')[0];
 
-  const startDate = start.toISOString().split('T')[0];
-  const endDate = end.toISOString().split('T')[0];
+    //  Determine status dynamically
+    let status: string = 'ACTIVE';
 
-  // ✅ Determine status dynamically
-  let status: string = 'ACTIVE';
+    const now = new Date();
+    if (end < now) {
+      status = 'EXPIRED';
+    }
 
-  const now = new Date();
-  if (end < now) {
-    status = 'EXPIRED';
-  }
+    //  Transaction
+    return this.db.transaction(async (conn) => {
+      const [insertResult] = await conn.execute<ResultSetHeader>(
+        MemberQueries.INSERT_MEMBER,
+        [
+          memberCode,
+          dto.name,
+          dto.phone,
+          dto.email ?? null,
+          dto.age ?? null,
+          dto.gender ?? null,
+          dto.healthConditions ?? null,
+          dto.emergencyContactPhone ?? null,
+          dto.membershipPlanId,
+          startDate,
+          endDate,
+          status,
+          plan.pt_sessions,
+          createdBy,
+        ],
+      );
 
-  // ✅ Transaction
-  return this.db.transaction(async (conn) => {
-    const [insertResult] = await conn.execute<ResultSetHeader>(
-      MemberQueries.INSERT_MEMBER,
-      [
-        memberCode,
-        dto.name,
-        dto.phone,
-        dto.email ?? null,
-        dto.age ?? null,
-        dto.gender ?? null,
-        dto.healthConditions ?? null,
-        dto.emergencyContactPhone ?? null,
+      const memberId = insertResult.insertId;
+
+
+      await conn.execute(MemberQueries.INSERT_TRANSACTION_NEW, [
+        memberId,
         dto.membershipPlanId,
+        plan.price,
+        dto.paymentMethod ?? 'CASH',
+        'NEW',
         startDate,
         endDate,
-        status, // ✅ dynamic
-        plan.pt_sessions,
+        'SUCCESS',
         createdBy,
-      ],
-    );
+      ]);
 
-    const memberId = insertResult.insertId;
+      // Return created member
+      const [rows] = await conn.query<RowDataPacket[]>(
+        MemberQueries.GET_MEMBER_WITH_PLAN,
+        [memberId],
+      );
 
-    // ✅ Insert transaction
-    await conn.execute(MemberQueries.INSERT_TRANSACTION_NEW, [
-      memberId,
-      dto.membershipPlanId,
-      plan.price,
-      dto.paymentMethod ?? 'CASH',
-      'NEW',
-      startDate,
-      endDate,
-      'SUCCESS',
-      createdBy,
-    ]);
+      return rows[0];
+    });
+  }
 
-    // ✅ Return created member
-    const [rows] = await conn.query<RowDataPacket[]>(
-      MemberQueries.GET_MEMBER_WITH_PLAN,
-      [memberId],
-    );
 
-    return rows[0];
-  });
-}
-
-  /** ✅ Update */
   async update(id: number, dto: UpdateMemberDto) {
     await this.findOne(id);
 
@@ -283,7 +279,7 @@ export class MembersService {
     return this.findOne(id);
   }
 
-  /** ✅ Cancel */
+
   async cancel(id: number, userId: number) {
     const member = await this.findOne(id);
 
@@ -301,7 +297,7 @@ export class MembersService {
     return this.findOne(id);
   }
 
-  /** ✅ Delete */
+
   async remove(id: number) {
     await this.findOne(id);
 
@@ -309,115 +305,115 @@ export class MembersService {
 
     return { message: 'Member deleted successfully' };
   }
-  /** ✅ Renew membership */
- async renew(id: number, dto: RenewMemberDto, userId: number) {
-  const member = await this.findOne(id);
 
-  const today = new Date();
-  const memberEndDate = new Date(member.end_date);
+  async renew(id: number, dto: RenewMemberDto, userId: number) {
+    const member = await this.findOne(id);
 
-  // ❌ Cancelled
-  if (member.status === 'CANCELLED') {
-    throw new BadRequestException('Cancelled member cannot be renewed');
-  }
+    const today = new Date();
+    const memberEndDate = new Date(member.end_date);
 
-  // ❌ Frozen
-  if (member.status === 'FROZEN') {
-    throw new BadRequestException('Unfreeze member before renewal');
-  }
+    // ❌ Cancelled
+    if (member.status === 'CANCELLED') {
+      throw new BadRequestException('Cancelled member cannot be renewed');
+    }
 
-  // ❌ Too early renewal
-  const diffDays = Math.ceil(
-    (memberEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
-  );
+    // ❌ Frozen
+    if (member.status === 'FROZEN') {
+      throw new BadRequestException('Unfreeze member before renewal');
+    }
 
-  if (member.status === 'ACTIVE' && diffDays > 7) {
-    throw new BadRequestException('Member can renew only near expiry');
-  }
-
-  // ✅ Get plan FIRST
-  const planRows = await this.db.execute(MemberQueries.RENEW_GET_PLAN, [
-    dto.planId,
-  ]) as import('mysql2').RowDataPacket[];
-
-  if (planRows.length === 0) {
-    throw new BadRequestException('Membership plan not found');
-  }
-
-  const plan = planRows[0] as {
-    id: number;
-    duration_months: number;
-    price: number;
-    pt_sessions: number;
-  };
-
-  // ✅ Decide START DATE (stack logic)
-  let start: Date;
-
-  if (memberEndDate >= today) {
-    // active → start after current plan ends
-    start = new Date(memberEndDate);
-    start.setDate(start.getDate() + 1);
-  } else {
-    // expired → start today or given date
-    start = new Date(dto.startDate || today);
-  }
-
-  // ❌ Validate start date
-  if (start < today) {
-    throw new BadRequestException('Start date cannot be in the past');
-  }
-
-  // ✅ Calculate END DATE
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + plan.duration_months);
-
-  if (end <= start) {
-    throw new BadRequestException('End date must be after start date');
-  }
-
-  const startStr = start.toISOString().split('T')[0];
-  const endStr = end.toISOString().split('T')[0];
-
-  // ✅ Transaction
-  return this.db.transaction(async (conn) => {
-    // ✅ Update member
-    await conn.execute(MemberQueries.RENEW_UPDATE_MEMBER, [
-      dto.planId,
-      startStr,   // ✅ FIXED
-      endStr,
-      plan.pt_sessions,
-      id,
-    ]);
-
-    // ✅ Insert transaction
-    await conn.execute(MemberQueries.RENEW_TRANSACTION, [
-      id,
-      dto.planId,
-      plan.price,
-      dto.paymentMethod ?? 'CASH',
-      startStr,   // ✅ FIXED
-      endStr,
-      userId,
-    ]);
-
-    // ✅ Status history
-    await conn.execute(MemberQueries.RENEW_STATUS_HISTORY, [
-      id,
-      member.status,
-      'ACTIVE',
-      userId,
-    ]);
-
-    // ✅ Return updated member
-    const [rows] = await conn.query<import('mysql2').RowDataPacket[]>(
-      MemberQueries.RETURN_UPDATE_MEMBER,
-      [id],
+    // ❌ Too early renewal
+    const diffDays = Math.ceil(
+      (memberEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
     );
 
-    return rows[0];
-  });
-}
+    if (member.status === 'ACTIVE' && diffDays > 7) {
+      throw new BadRequestException('Member can renew only near expiry');
+    }
+
+    // ✅ Get plan FIRST
+    const planRows = await this.db.execute(MemberQueries.RENEW_GET_PLAN, [
+      dto.planId,
+    ]) as import('mysql2').RowDataPacket[];
+
+    if (planRows.length === 0) {
+      throw new BadRequestException('Membership plan not found');
+    }
+
+    const plan = planRows[0] as {
+      id: number;
+      duration_months: number;
+      price: number;
+      pt_sessions: number;
+    };
+
+    // ✅ Decide START DATE (stack logic)
+    let start: Date;
+
+    if (memberEndDate >= today) {
+      // active → start after current plan ends
+      start = new Date(memberEndDate);
+      start.setDate(start.getDate() + 1);
+    } else {
+      // expired → start today or given date
+      start = new Date(dto.startDate || today);
+    }
+
+    // ❌ Validate start date
+    if (start < today) {
+      throw new BadRequestException('Start date cannot be in the past');
+    }
+
+    // ✅ Calculate END DATE
+    const end = new Date(start);
+    end.setMonth(end.getMonth() + plan.duration_months);
+
+    if (end <= start) {
+      throw new BadRequestException('End date must be after start date');
+    }
+
+    const startStr = start.toISOString().split('T')[0];
+    const endStr = end.toISOString().split('T')[0];
+
+    // ✅ Transaction
+    return this.db.transaction(async (conn) => {
+      // ✅ Update member
+      await conn.execute(MemberQueries.RENEW_UPDATE_MEMBER, [
+        dto.planId,
+        startStr,   // ✅ FIXED
+        endStr,
+        plan.pt_sessions,
+        id,
+      ]);
+
+      // ✅ Insert transaction
+      await conn.execute(MemberQueries.RENEW_TRANSACTION, [
+        id,
+        dto.planId,
+        plan.price,
+        dto.paymentMethod ?? 'CASH',
+        startStr,   // ✅ FIXED
+        endStr,
+        userId,
+      ]);
+
+      // ✅ Status history
+      await conn.execute(MemberQueries.RENEW_STATUS_HISTORY, [
+        id,
+        member.status,
+        'ACTIVE',
+        userId,
+      ]);
+
+      // ✅ Return updated member
+      const [rows] = await conn.query<import('mysql2').RowDataPacket[]>(
+        MemberQueries.RETURN_UPDATE_MEMBER,
+        [id],
+      );
+
+      return rows[0];
+    });
+  }
   async freeze(id: number, userId: number) {
     const member = await this.findOne(id);
 
@@ -505,101 +501,101 @@ export class MembersService {
     return this.findOne(id);
   }
   async changePlan(id: number, dto: ChangePlanDto, userId: number) {
-  const member = await this.findOne(id);
+    const member = await this.findOne(id);
 
-  // ❌ Cancelled
-  if (member.status === 'CANCELLED') {
-    throw new BadRequestException('Cancelled member cannot change plan');
-  }
-
-  // ❌ Frozen
-  if (member.status === 'FROZEN') {
-    throw new BadRequestException('Unfreeze member before changing plan');
-  }
-
-  // ❌ Only ACTIVE allowed
-  if (member.status !== 'ACTIVE') {
-    throw new BadRequestException('Only active members can change plan');
-  }
-
-  // ✅ Validate new plan
-  const planRows = await this.db.execute<RowDataPacket[]>(
-    MemberQueries.CHANGE_PLAN_GET_PLAN,
-    [dto.planId],
-  );
-
-  if (planRows.length === 0) {
-    throw new BadRequestException('Plan not found');
-  }
-
-  const plan = planRows[0] as PlanRow;
-
-  // ✅ Date handling
-  const today = new Date();
-
-  let start: Date;
-
-  if (dto.startDate) {
-    start = new Date(dto.startDate + 'T00:00:00');
-
-    // ❌ Past date not allowed
-    if (start < today) {
-      throw new BadRequestException('Start date cannot be in the past');
+    //  Cancelled
+    if (member.status === 'CANCELLED') {
+      throw new BadRequestException('Cancelled member cannot change plan');
     }
-  } else {
-    // ✅ Default → immediate change
-    start = today;
-  }
 
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + plan.duration_months);
+    //  Frozen
+    if (member.status === 'FROZEN') {
+      throw new BadRequestException('Unfreeze member before changing plan');
+    }
 
-  if (end <= start) {
-    throw new BadRequestException('Invalid plan duration');
-  }
+    //  Only ACTIVE allowed
+    if (member.status !== 'ACTIVE') {
+      throw new BadRequestException('Only active members can change plan');
+    }
 
-  const startStr = start.toISOString().split('T')[0];
-  const endStr = end.toISOString().split('T')[0];
-
-  return this.db.transaction(async (conn) => {
-    // ✅ 1. Update member (IMMEDIATE CHANGE)
-    await conn.execute(MemberQueries.CHANGE_PLAN_UPDATE_MEMBER, [
-      dto.planId,
-      startStr,
-      endStr,
-      plan.pt_sessions,
-      id,
-    ]);
-
-    // ✅ 2. Insert transaction
-    await conn.execute(MemberQueries.CHANGE_PLAN_TRANSACTION, [
-      id,
-      dto.planId,
-      plan.price,
-      dto.paymentMethod || 'CASH',
-      startStr,
-      endStr,
-      userId,
-    ]);
-
-    // ✅ 3. Status history (plan change tracking)
-    await conn.execute(MemberQueries.CHANGE_PLAN_STATUS_HISTORY, [
-      id,
-      member.status,
-      member.status, // remains ACTIVE
-      member.membership_plan_id,
-      dto.planId,
-      'PLAN_CHANGED',
-      userId,
-    ]);
-
-    // ✅ 4. Return updated member
-    const [rows] = await conn.query<RowDataPacket[]>(
-      MemberQueries.CHANGE_PLAN_AFTER_UPDATE_MEMBER,
-      [id],
+    //  Validate new plan
+    const planRows = await this.db.execute<RowDataPacket[]>(
+      MemberQueries.CHANGE_PLAN_GET_PLAN,
+      [dto.planId],
     );
 
-    return rows[0];
-  });
-}
+    if (planRows.length === 0) {
+      throw new BadRequestException('Plan not found');
+    }
+
+    const plan = planRows[0] as PlanRow;
+
+    //  Date handling
+    const today = new Date();
+
+    let start: Date;
+
+    if (dto.startDate) {
+      start = new Date(dto.startDate + 'T00:00:00');
+
+      //  Past date not allowed
+      if (start < today) {
+        throw new BadRequestException('Start date cannot be in the past');
+      }
+    } else {
+      //  Default → immediate change
+      start = today;
+    }
+
+    const end = new Date(start);
+    end.setMonth(end.getMonth() + plan.duration_months);
+
+    if (end <= start) {
+      throw new BadRequestException('Invalid plan duration');
+    }
+
+    const startStr = start.toISOString().split('T')[0];
+    const endStr = end.toISOString().split('T')[0];
+
+    return this.db.transaction(async (conn) => {
+      // 1. Update member (IMMEDIATE CHANGE)
+      await conn.execute(MemberQueries.CHANGE_PLAN_UPDATE_MEMBER, [
+        dto.planId,
+        startStr,
+        endStr,
+        plan.pt_sessions,
+        id,
+      ]);
+
+      // 2. Insert transaction
+      await conn.execute(MemberQueries.CHANGE_PLAN_TRANSACTION, [
+        id,
+        dto.planId,
+        plan.price,
+        dto.paymentMethod || 'CASH',
+        startStr,
+        endStr,
+        userId,
+      ]);
+
+      // 3. Status history (plan change tracking)
+      await conn.execute(MemberQueries.CHANGE_PLAN_STATUS_HISTORY, [
+        id,
+        member.status,
+        member.status, // remains ACTIVE
+        member.membership_plan_id,
+        dto.planId,
+        'PLAN_CHANGED',
+        userId,
+      ]);
+
+      // 4. Return updated member
+      const [rows] = await conn.query<RowDataPacket[]>(
+        MemberQueries.CHANGE_PLAN_AFTER_UPDATE_MEMBER,
+        [id],
+      );
+
+      return rows[0];
+    });
+  }
 }
