@@ -9,7 +9,6 @@ export class BookSessionDto {
   @IsNotEmpty({ message: 'Member ID is required' })
   memberId!: number;
 
-
   @ApiProperty({ example: 1 })
   @IsNumber()
   @IsNotEmpty({ message: 'Slot ID is required' })

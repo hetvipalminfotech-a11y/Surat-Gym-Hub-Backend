@@ -9,50 +9,41 @@ import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 import { MembershipPlanQueries } from './queries/membership.queries';
 
-export interface PlanRow {
-  id: number;
-  name: string;
-  duration_months: number;
-  price: number;
-  pt_sessions: number;
-  access_hours: string;
-  status: string;
-  created_at: Date;
-  updated_at: Date;
-  deleted_at?: Date | null;
-}
+import { PlanRow } from './memberships.types';
+import { MessageResponse } from '../common/types/response.types';
 
 @Injectable()
 export class MembershipsService {
   constructor(private db: DatabaseService) {}
 
-  async findAll(query?: { status?: string; accessHours?: string }) {
-    let sql = MembershipPlanQueries.FIND_ALL;
+  async findAll(query?: { status?: string; accessHours?: string }): Promise<PlanRow[]> {
+    const whereClauses = ['deleted_at IS NULL'];
     const params: (string | number)[] = [];
 
     if (query?.status) {
-      sql += ` AND status = ?`;
+      whereClauses.push('status = ?');
       params.push(query.status);
     }
 
     if (query?.accessHours) {
-      sql += ` AND access_hours = ?`;
+      whereClauses.push('access_hours = ?');
       params.push(query.accessHours);
     }
 
-    sql += ` ORDER BY price ASC`;
+    const whereSQL = whereClauses.join(' AND ');
+    const sql = MembershipPlanQueries.FIND_ALL(whereSQL);
 
-    const result = await this.db.execute(sql, params);
-    return result as unknown as PlanRow[];
+    const result = await this.db.execute<PlanRow[]>(sql, params);
+    return result;
   }
 
-  async findOne(id: number) {
+  async findOne(id: number): Promise<PlanRow> {
     const result = await this.db.execute(
       MembershipPlanQueries.FIND_ONE,
       [id],
     );
 
-    const plans = result as unknown as PlanRow[];
+    const plans = result as PlanRow[];
 
     if (plans.length === 0) {
       throw new NotFoundException('Membership plan not found');
@@ -61,13 +52,13 @@ export class MembershipsService {
     return plans[0];
   }
 
-  async create(dto: CreatePlanDto) {
+  async create(dto: CreatePlanDto): Promise<PlanRow> {
     const existingResult = await this.db.execute(
       MembershipPlanQueries.FIND_BY_NAME,
       [dto.name],
     );
 
-    const existing = existingResult as unknown as { id: number }[];
+    const existing = existingResult as { id: number }[];
 
     if (existing.length > 0) {
       throw new ConflictException('Plan with this name already exists');
@@ -98,7 +89,7 @@ export class MembershipsService {
     return this.findOne(insertResult.insertId);
   }
 
-  async update(id: number, dto: UpdatePlanDto) {
+  async update(id: number, dto: UpdatePlanDto): Promise<PlanRow> {
     await this.findOne(id);
 
     const fields: string[] = [];
@@ -110,7 +101,7 @@ export class MembershipsService {
         [dto.name, id],
       );
 
-      const existing = checkResult as unknown as { id: number }[];
+      const existing = checkResult as { id: number }[];
 
       if (existing.length > 0) {
         throw new ConflictException('Plan name already exists');
@@ -170,7 +161,7 @@ export class MembershipsService {
     return this.findOne(id);
   }
 
-  async remove(id: number) {
+  async remove(id: number): Promise<MessageResponse> {
     await this.findOne(id);
 
     const usedResult = await this.db.execute(
@@ -178,7 +169,7 @@ export class MembershipsService {
       [id],
     );
 
-    const used = usedResult as unknown as { id: number }[];
+    const used = usedResult as { id: number }[];
 
     if (used.length > 0) {
       throw new BadRequestException('Plan is assigned to active members and cannot be deleted');
@@ -192,13 +183,13 @@ export class MembershipsService {
     return { message: 'Plan deleted successfully' };
   }
 
-  async restore(id: number) {
+  async restore(id: number): Promise<PlanRow> {
     const result = await this.db.execute(
       MembershipPlanQueries.FIND_WITH_DELETED,
       [id],
     );
 
-    const plans = result as unknown as PlanRow[];
+    const plans = result as PlanRow[];
 
     if (plans.length === 0) {
       throw new NotFoundException('Plan not found');

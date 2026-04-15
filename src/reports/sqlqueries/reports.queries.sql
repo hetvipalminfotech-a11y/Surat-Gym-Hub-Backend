@@ -1,6 +1,5 @@
 
 -- name: getDailySummary
-SET @selectdate = '2026-04-14';
 SELECT 
   a.total_checkins,
   ps.total_pt_sessions,
@@ -17,14 +16,14 @@ FROM
     (
       SELECT HOUR(check_in_time)
       FROM attendance
-      WHERE attendance_date = @selectdate
+      WHERE attendance_date = ?
         AND deleted_at IS NULL
       GROUP BY HOUR(check_in_time)
       ORDER BY COUNT(*) DESC
       LIMIT 1
     ) AS peak_hour
   FROM attendance
-  WHERE attendance_date = @selectdate
+  WHERE attendance_date = ?
     AND deleted_at IS NULL
 ) a
 CROSS JOIN (
@@ -39,7 +38,7 @@ CROSS JOIN (
       ), 0
     ) AS pt_revenue
   FROM pt_sessions
-  WHERE session_date = @selectdate
+  WHERE session_date = ?
     AND status = 'COMPLETED'
     AND deleted_at IS NULL
 ) ps
@@ -50,7 +49,7 @@ CROSS JOIN (
     IFNULL(SUM(amount), 0) AS membership_revenue
 
   FROM membership_transactions
-  WHERE DATE(created_at) = @selectdate
+  WHERE DATE(created_at) = ?
     AND status = 'SUCCESS'
     AND deleted_at IS NULL
 ) mt;

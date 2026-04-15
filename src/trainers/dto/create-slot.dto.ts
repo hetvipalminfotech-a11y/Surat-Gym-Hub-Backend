@@ -22,5 +22,3 @@ export class CreateSlotDto {
   @IsNotEmpty({ message: 'End time is required' })
   endTime!: string;
 }
-
-

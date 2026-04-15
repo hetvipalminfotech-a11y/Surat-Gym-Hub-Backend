@@ -19,9 +19,10 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums';
 import { ApiBearerAuth } from '@nestjs/swagger';
-import { request } from 'express';
 import { ChangePlanDto } from './dto/change-plan.dto';
 import { MemberFilterDto } from './dto/member-filter.dto';
+import { MemberRow, PaginatedMembersResponse } from './members.types';
+import { MessageResponse } from '../common/types/response.types';
 
 interface AuthRequest extends Request {
   user: {
@@ -37,12 +38,12 @@ interface AuthRequest extends Request {
   constructor(private readonly membersService: MembersService) {}
 
   @Get()
-  async findAll(@Query() query: MemberFilterDto) {
+  async findAll(@Query() query: MemberFilterDto): Promise<PaginatedMembersResponse> {
     return this.membersService.findAll(query);
   }
 
   @Get(':id')
-  async findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseIntPipe) id: number): Promise<MemberRow> {
     return this.membersService.findOne(id);
   }
 
@@ -51,10 +52,10 @@ interface AuthRequest extends Request {
   async create(
     @Body() dto: CreateMemberDto,
     @Req() req: AuthRequest,
-  ) {
-  // console.log('USER:', req.user); // debug
+  ): Promise<MemberRow> {
+
   if (!req.user) {
-    throw new Error('User not found in request'); // safety
+    throw new Error('User not found in request');
   }
   return this.membersService.create(dto, req.user.userId);
 }
@@ -64,7 +65,7 @@ interface AuthRequest extends Request {
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateMemberDto,
-  ) {
+  ): Promise<MemberRow> {
     return this.membersService.update(id, dto);
   }
 
@@ -74,13 +75,13 @@ interface AuthRequest extends Request {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: RenewMemberDto,
     @Req() req: AuthRequest,
-  ) {
+  ): Promise<MemberRow> {
     return this.membersService.renew(id, dto, req.user.userId);
   }
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
-  async remove(@Param('id', ParseIntPipe) id: number) {
+  async remove(@Param('id', ParseIntPipe) id: number): Promise<MessageResponse> {
     return this.membersService.remove(id);
   }
 
@@ -88,7 +89,7 @@ interface AuthRequest extends Request {
   async freeze(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: AuthRequest,
-  ) {
+  ): Promise<MemberRow> {
     return this.membersService.freeze(id, req.user.userId);
   }
 
@@ -96,7 +97,7 @@ interface AuthRequest extends Request {
   async unfreeze(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: AuthRequest,
-  ) {
+  ): Promise<MemberRow> {
     return this.membersService.unfreeze(id, req.user.userId);
   }
 
@@ -104,7 +105,7 @@ interface AuthRequest extends Request {
   async cancel(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: AuthRequest,
-  ) {
+  ): Promise<MemberRow> {
     return this.membersService.cancel(id, req.user.userId);
   }
 
@@ -114,7 +115,7 @@ interface AuthRequest extends Request {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ChangePlanDto,
     @Req() req: AuthRequest,
-  ) {
+  ): Promise<MemberRow> {
     return this.membersService.changePlan(id, dto, req.user.userId);
   }
 }

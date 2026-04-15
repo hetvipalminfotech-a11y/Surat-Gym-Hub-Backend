@@ -11,29 +11,24 @@ dotenv.config();
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Enable CORS for frontend
   app.enableCors({
     origin: true,
     credentials: true,
   });
 
-  // Global prefix
   app.setGlobalPrefix('api');
 
-  // ✅ Swagger config
   const config = new DocumentBuilder()
     .setTitle('My API')
     .setDescription('API documentation')
     .setVersion('1.0')
-    .addBearerAuth() // optional (for JWT auth)
+    .addBearerAuth()
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
 
   SwaggerModule.setup('api/docs', app, document);
-  // 👉 URL: http://localhost:3000/api/docs
 
-  // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -45,11 +40,10 @@ async function bootstrap() {
     }),
   );
 
-  // Global response format
   app.useGlobalInterceptors(new LoggingInterceptor());
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
-  // Global error handler
+
   app.useGlobalFilters(new GlobalExceptionFilter());
 
   const port = process.env.PORT || 3000;

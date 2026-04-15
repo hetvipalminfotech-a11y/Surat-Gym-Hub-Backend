@@ -6,17 +6,20 @@ import {
 } from '@nestjs/common';
 import { ReportsService } from './reports.service';
 import { ApiBearerAuth } from '@nestjs/swagger';
+import {
+  DailySummaryReport,
+  MembershipExpiryReport,
+  TrainerUtilisationReport,
+  RevenueAnalysisReport,
+} from './reports.types';
 
 @ApiBearerAuth()
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
-  // ==============================
-  // 📊 Report 1 — Daily Summary
-  // ==============================
   @Get('daily-summary')
-  async getDailySummary(@Query('date') date: string) {
+  async getDailySummary(@Query('date') date: string): Promise<DailySummaryReport[]> {
     if (!date) {
       throw new BadRequestException('date is required (YYYY-MM-DD)');
     }
@@ -24,27 +27,18 @@ export class ReportsController {
     return this.reportsService.getDailySummary(date);
   }
 
-  // ==============================
-  // 📊 Report 2 — Membership Expiry
-  // ==============================
   @Get('membership-expiry')
-  async getMembershipExpiry() {
+  async getMembershipExpiry(): Promise<MembershipExpiryReport[]> {
     return this.reportsService.getMembershipExpiryReport();
   }
 
-  // ==============================
-  // 📊 Report 3 — Trainer Utilisation
-  // ==============================
   @Get('trainer-utilisation')
-  async getTrainerUtilisation() {
+  async getTrainerUtilisation(): Promise<TrainerUtilisationReport[]> {
     return this.reportsService.getTrainerUtilisationReport();
   }
 
-  // ==============================
-  // 📊 Report 4 — Revenue Analysis
-  // ==============================
   @Get('revenue-analysis')
-  async getRevenueAnalysis() {
+  async getRevenueAnalysis(): Promise<RevenueAnalysisReport[]> {
     return this.reportsService.getRevenueAnalysisReport();
   }
 }

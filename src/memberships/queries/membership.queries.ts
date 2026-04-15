@@ -1,9 +1,10 @@
-// membership-plans.queries.ts
+
 
 export const MembershipPlanQueries = {
-  FIND_ALL: `
+  FIND_ALL: (whereSQL: string) => `
     SELECT * FROM membership_plans 
-    WHERE deleted_at IS NULL
+    WHERE ${whereSQL}
+    ORDER BY price ASC
   `,
 
   FIND_ONE: `

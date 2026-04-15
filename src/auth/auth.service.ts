@@ -14,37 +14,21 @@ import { UserRole, UserStatus, TokenStatus } from '../common/enums';
 import { AuthQueries } from './queries/auth.queries';
 import { ResultSetHeader, RowDataPacket } from 'mysql2';
 
-export interface TrainerIdRow extends RowDataPacket {
-  trainer_id: number;
-}
-
-export interface UserRow {
-  id: number;
-  name: string;
-  email: string;
-  password_hash: string;
-  role: UserRole;
-  status: UserStatus;
-  failed_attempts: number;
-  locked_until: Date | null;
-}
-
-export interface TokenRow {
-  expired_at: Date | string;
-  id: number;
-  access_token_hash: string;
-  refresh_token_hash: string;
-  user_id: number;
-  status: TokenStatus;
-}
+import {
+  UserRow,
+  TokenRow,
+  TrainerIdRow,
+  RegisterResponse,
+  LoginResponse,
+  TokenResponse,
+} from './auth.types';
 
 @Injectable()
 export class AuthService {
   constructor(private db: DatabaseService) { }
 
-  /** Register a new user - default role is RECEPTIONIST */
-  async register(dto: RegisterDto) {
-    // Check if email already exists
+  async register(dto: RegisterDto): Promise<RegisterResponse> {
+
     const existing = await this.db.query<UserRow>(
       AuthQueries.CHECK_EMAIL_EXISTS,
       [dto.email],
@@ -69,9 +53,8 @@ export class AuthService {
     };
   }
 
-  /** Login - returns access & refresh tokens */
-  async login(dto: LoginDto) {
-    // Find user by email
+  async login(dto: LoginDto): Promise<LoginResponse> {
+
     const users = await this.db.query<UserRow>(
       AuthQueries.FIND_USER_BY_EMAIL,
       [dto.email],
@@ -83,27 +66,23 @@ export class AuthService {
 
     const user = users[0];
 
-    // Check if account is locked
     if (user.locked_until && new Date(user.locked_until) > new Date()) {
       throw new ForbiddenException(
         'Account is locked due to too many failed attempts. Please try again later.',
       );
     }
 
-    // Check if account is blocked
     if (user.status === UserStatus.BLOCKED) {
       throw new ForbiddenException('Account is blocked. Contact admin.');
     }
 
-    // Verify password
     const isPasswordValid = await bcrypt.compare(dto.password, user.password_hash);
 
     if (!isPasswordValid) {
       const newAttempts = user.failed_attempts + 1;
 
-      // Lock account after 5 failed attempts (lock for 30 minutes)
       if (newAttempts >= 5) {
-        const lockUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+        const lockUntil = new Date(Date.now() + 30 * 60 * 1000);
         await this.db.execute(
           AuthQueries.LOCK_USER,
           [newAttempts, lockUntil, user.id],
@@ -121,13 +100,11 @@ export class AuthService {
       throw new UnauthorizedException('Incorrect password');
     }
 
-    // Reset failed attempts on successful login
     await this.db.execute(
       AuthQueries.RESET_LOGIN_ATTEMPTS,
       [user.id],
     );
 
-    // Fetch trainer_id if the user is a TRAINER
     let trainerId: number | undefined;
     if (user.role === UserRole.TRAINER) {
       const trainerRows = await this.db.query<TrainerIdRow>(
@@ -139,15 +116,13 @@ export class AuthService {
       }
     }
 
-    // Generate tokens
     const accessToken = this.generateAccessToken(user, trainerId);
     const refreshToken = this.generateRefreshToken(user);
 
-    // Hash and store tokens
     const accessTokenHash = await bcrypt.hash(accessToken, 10);
     const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
 
-    const expiredAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const expiredAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     await this.db.execute(
       AuthQueries.INSERT_TOKEN,
@@ -167,8 +142,8 @@ export class AuthService {
     };
   }
 
-  async refreshToken(dto: RefreshTokenDto) {
-    // Verify refresh token
+  async refreshToken(dto: RefreshTokenDto): Promise<TokenResponse> {
+
     let decoded: { userId: number; email: string; role: string };
 
     try {
@@ -180,13 +155,11 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    // Find active tokens
     const tokens = await this.db.query<TokenRow>(
       AuthQueries.FIND_ACTIVE_TOKENS,
       [decoded.userId, TokenStatus.ACTIVE],
     );
 
-    // Match refresh token
     let matchedToken: TokenRow | null = null;
 
     for (const token of tokens) {
@@ -204,7 +177,6 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token not found or revoked');
     }
 
-    // Get user
     const users = await this.db.query<UserRow>(
       AuthQueries.GET_USER_BY_ID,
       [decoded.userId],
@@ -216,16 +188,13 @@ export class AuthService {
 
     const user = users[0];
 
-    // ✅ Generate ONLY new access token
     const newAccessToken = this.generateAccessToken(user);
     const accessTokenHash = await bcrypt.hash(newAccessToken, 10);
 
-    // ✅ SAME refresh token hash (reuse old one)
     const refreshTokenHash = matchedToken.refresh_token_hash;
 
-    const expiredAt = matchedToken.expired_at; // keep same expiry
+    const expiredAt = matchedToken.expired_at;
 
-    // ✅ INSERT NEW ROW (refresh token unchanged)
     await this.db.execute(
       AuthQueries.INSERT_TOKEN,
       [
@@ -239,11 +208,11 @@ export class AuthService {
 
     return {
       accessToken: newAccessToken,
-      refreshToken: dto.refreshToken, // SAME refresh token
+      refreshToken: dto.refreshToken,
     };
   }
-  /** Logout - revoke all tokens for user */
-  async logout(userId: number) {
+
+  async logout(userId: number): Promise<{ message: string }> {
     await this.db.execute(
       AuthQueries.REVOKE_ALL_TOKENS,
       [TokenStatus.REVOKED, userId, TokenStatus.ACTIVE],
@@ -252,23 +221,9 @@ export class AuthService {
     return { message: 'Logged out successfully' };
   }
 
-  /** Get current user profile */
-  async getProfile(userId: number) {
-    const users = await this.db.query<UserRow>(
-      AuthQueries.GET_PROFILE,
-      [userId],
-    );
-
-    if (users.length === 0) {
-      throw new UnauthorizedException('User not found');
-    }
-
-    return users[0];
-  }
-
   private generateAccessToken(user: UserRow, trainerId?: number): string {
     const expiresIn = (process.env.JWT_ACCESS_EXPIRES_IN || '1h') as jwt.SignOptions['expiresIn'];
-    const payload: any = { userId: user.id, email: user.email, role: user.role };
+    const payload: { userId: number; email: string; role: string; trainerId?: number } = { userId: user.id, email: user.email, role: user.role };
     if (trainerId) payload.trainerId = trainerId;
 
     return jwt.sign(

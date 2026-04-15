@@ -42,7 +42,7 @@ export const PtSessionQueries = {
 
   LOCK_TRAINER: `
     SELECT * FROM trainers 
-    WHERE id = ? AND status = 'ACTIVE' 
+    WHERE id = ? AND status = 'ACTIVE' AND deleted_at IS NULL
     FOR UPDATE
   `,
 
@@ -107,12 +107,12 @@ export const PtSessionQueries = {
 
   GET_SLOT_BY_ID: `
     SELECT * FROM trainer_time_slots 
-    WHERE id = ? AND status = ?
+    WHERE id = ? AND status = ? AND deleted_at IS NULL
   `,
 
   UPDATE_SESSION_SLOT: `
     UPDATE pt_sessions 
-    SET slot_id = ?, session_date = ?
+    SET slot_id = ?, session_date = ?, trainer_id = ?
     WHERE id = ?
   `,
   UPDATE_PT_SESSION_STATUS:`

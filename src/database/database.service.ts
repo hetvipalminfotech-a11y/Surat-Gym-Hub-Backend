@@ -1,16 +1,15 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import * as mysql from 'mysql2/promise';
 import { createPool, Pool, PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
-/** Allowed types for SQL parameters */
+
 type SqlParam = string | number | boolean | null | Date;
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
-  // private connection!: mysql.Connection;
+
   pool!: mysql.Pool;
 
-
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
    this.pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -25,13 +24,12 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     console.log('Database connected successfully');
   }
 
-  async onModuleDestroy() {
+  async onModuleDestroy(): Promise<void> {
     if (this.pool) {
       await this.pool.end();
     }
   }
 
-  /** Run a query with parameters - returns rows */
   async query<T = Record<string, unknown>>(
   sql: string,
   params: SqlParam[] = [],
@@ -46,18 +44,10 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   return rows as T[];
 }
 
-  // /** Run an INSERT/UPDATE/DELETE and return result metadata */
-  // async execute(sql: string, params?: SqlParam[]): Promise<mysql.ResultSetHeader> {
-  //   const [result] = await this.pool.execute(sql, params as SqlParam[]);
-  //   return result as mysql.ResultSetHeader;
-  // }
-
-   /** Get the raw connection */
   getConnection(): mysql.Connection {
     return this.pool;
   }
 
-// ✅ STRICT GENERIC
   async execute<T extends RowDataPacket[] | ResultSetHeader>(
     query: string,
     params: SqlParam[] = [],
@@ -71,7 +61,6 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     return result as T;
   }
 
-  // ✅ TRANSACTION SUPPORT
   async transaction<T>(
     callback: (conn: PoolConnection) => Promise<T>,
   ): Promise<T> {
@@ -90,4 +79,3 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     }
   }
 }
-

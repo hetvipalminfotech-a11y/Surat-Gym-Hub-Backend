@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { DatabaseService } from '../database/database.service';
 import { ResultSetHeader } from 'mysql2';
+import { CronQueries } from './queries/cron.queries';
 
 @Injectable()
 export class CronService {
@@ -9,10 +10,6 @@ export class CronService {
 
   constructor(private db: DatabaseService) {}
 
-  /**
-   * 9 AM Daily: Check for expiring memberships (next 7 days)
-   * Logs members whose memberships are about to expire
-   */
   @Cron('0 9 * * *')
   async checkExpiringMemberships() {
     this.logger.log('Running: Check expiring memberships');
@@ -24,16 +21,7 @@ export class CronService {
       phone: string;
       end_date: string;
       days_remaining: number;
-    }>(
-      `SELECT
-        m.id, m.member_code, m.name, m.phone, m.end_date,
-        DATEDIFF(m.end_date, CURDATE()) as days_remaining
-       FROM members m
-       WHERE m.status = 'ACTIVE'
-         AND m.deleted_at IS NULL
-         AND DATEDIFF(m.end_date, CURDATE()) BETWEEN 0 AND 7
-       ORDER BY m.end_date ASC`,
-    );
+    }>(CronQueries.CHECK_EXPIRING_MEMBERSHIPS);
 
     if (expiringMembers.length > 0) {
       this.logger.warn(
@@ -49,69 +37,41 @@ export class CronService {
     }
   }
 
-  /**
-   * 11:30 PM Daily: Auto-expire memberships and log daily summary
-   */
   @Cron('30 23 * * *')
 async dailySummaryAndExpiry() {
   this.logger.log('Running: Daily summary and membership expiry check');
 
-  // 1️⃣ Auto-expire memberships
-  const expired = await this.db.execute<ResultSetHeader>(
-    `UPDATE members 
-     SET status = 'EXPIRED'
-     WHERE status = 'ACTIVE' 
-     AND end_date < CURDATE() 
-     AND deleted_at IS NULL`,
-  );
+    const expired = await this.db.execute<ResultSetHeader>(
+      CronQueries.AUTO_EXPIRE_MEMBERSHIPS,
+    );
 
   this.logger.log(`Auto-expired ${expired.affectedRows} memberships`);
 
   const today = new Date().toISOString().split('T')[0];
 
-  // 2️⃣ Total Check-ins
-  const attendance = await this.db.query<{ total: number }>(
-    `SELECT COUNT(*) as total 
-     FROM attendance
-     WHERE attendance_date = ? 
-     AND deleted_at IS NULL`,
-    [today],
-  );
+    const attendance = await this.db.query<{ total: number }>(
+      CronQueries.DAILY_TOTAL_CHECKINS,
+      [today],
+    );
 
-  // 3️⃣ Total PT sessions conducted (ONLY COMPLETED)
-  const sessions = await this.db.query<{ total: number }>(
-    `SELECT COUNT(*) as total 
-     FROM pt_sessions
-     WHERE session_date = ? 
-     AND status = 'COMPLETED'
-     AND deleted_at IS NULL`,
-    [today],
-  );
+    const sessions = await this.db.query<{ total: number }>(
+      CronQueries.DAILY_COMPLETED_SESSIONS,
+      [today],
+    );
 
-  // 4️⃣ PT revenue (ONLY COMPLETED)
-  const ptRevenue = await this.db.query<{ total: number }>(
-    `SELECT COALESCE(SUM(amount_charged), 0) as total 
-     FROM pt_sessions
-     WHERE session_date = ? 
-     AND status = 'COMPLETED'
-     AND deleted_at IS NULL`,
-    [today],
-  );
+    const ptRevenue = await this.db.query<{ total: number }>(
+      CronQueries.DAILY_PT_REVENUE,
+      [today],
+    );
 
-  // 5️⃣ Membership revenue
-  const membershipRevenue = await this.db.query<{ total: number }>(
-    `SELECT COALESCE(SUM(amount), 0) as total 
-     FROM membership_transactions
-     WHERE DATE(created_at) = ? 
-     AND status = 'SUCCESS'
-     AND deleted_at IS NULL`,
-    [today],
-  );
+    const membershipRevenue = await this.db.query<{ total: number }>(
+      CronQueries.DAILY_MEMBERSHIP_REVENUE,
+      [today],
+    );
 
   const totalRevenue =
     ptRevenue[0].total + membershipRevenue[0].total;
 
-  // 6️⃣ LOG FINAL REPORT
   this.logger.log('===== DAILY REPORT =====');
   this.logger.log(`Date: ${today}`);
   this.logger.log(`Total Check-ins: ${attendance[0].total}`);

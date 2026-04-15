@@ -7,43 +7,17 @@ import { DatabaseService } from '../database/database.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { RenewMemberDto } from './dto/renew-member.dto';
-import { RowDataPacket, ResultSetHeader } from 'mysql2';
+import { MemberRow, PlanRow, PaginatedMembersResponse, FreezeHistoryRow } from './members.types';
+import { MessageResponse } from '../common/types/response.types';
+import { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { ChangePlanDto } from './dto/change-plan.dto';
 import { MemberQueries } from './queries/members.queries';
 import { MemberFilterDto } from './dto/member-filter.dto';
 
-export interface MemberRow {
-  id: number;
-  member_code: string;
-  name: string;
-  phone: string;
-  email: string | null;
-  age: number | null;
-  gender: string | null;
-  health_conditions: string | null;
-  emergency_contact_phone: string | null;
-  membership_plan_id: number | null;
-  start_date: string | null;
-  end_date: string | null;
-  status: string;
-  remaining_pt_sessions: number;
-  created_by: number | null;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface PlanRow {
-  id: number;
-  name: string;
-  duration_months: number;
-  price: number;
-  pt_sessions: number;
-}
-
 @Injectable()
 export class MembersService {
   constructor(private db: DatabaseService) { }
-  async findAll(query: MemberFilterDto) {
+  async findAll(query: MemberFilterDto): Promise<PaginatedMembersResponse> {
     // Parse pagination safely
     const page = Number(query.page) > 0 ? Number(query.page) : 1;
     const limit =
@@ -92,7 +66,7 @@ export class MembersService {
     )) as RowDataPacket[];
 
     return {
-      members: rows,
+      members: rows as MemberRow[],
       pagination: {
         total,
         page,
@@ -112,7 +86,7 @@ export class MembersService {
       throw new NotFoundException('Member not found');
     }
 
-    return rows[0];
+    return rows[0] as MemberRow;
   }
 
 
@@ -215,13 +189,11 @@ export class MembersService {
         createdBy,
       ]);
 
-      // Return created member
-      const [rows] = await conn.query<RowDataPacket[]>(
-        MemberQueries.GET_MEMBER_WITH_PLAN,
+      const [rows] = await conn.query(
+        MemberQueries.RETURN_MEMBER,
         [memberId],
       );
-
-      return rows[0];
+      return (rows as MemberRow[])[0];
     });
   }
 
@@ -310,7 +282,7 @@ export class MembersService {
     const member = await this.findOne(id);
 
     const today = new Date();
-    const memberEndDate = new Date(member.end_date);
+    const memberEndDate = new Date(member.end_date as string);
 
     // ❌ Cancelled
     if (member.status === 'CANCELLED') {
@@ -392,12 +364,11 @@ export class MembersService {
         dto.planId,
         plan.price,
         dto.paymentMethod ?? 'CASH',
-        startStr,   // ✅ FIXED
+        startStr,
         endStr,
         userId,
       ]);
 
-      // ✅ Status history
       await conn.execute(MemberQueries.RENEW_STATUS_HISTORY, [
         id,
         member.status,
@@ -405,13 +376,12 @@ export class MembersService {
         userId,
       ]);
 
-      // ✅ Return updated member
-      const [rows] = await conn.query<import('mysql2').RowDataPacket[]>(
+      const [rows] = await conn.query(
         MemberQueries.RETURN_UPDATE_MEMBER,
         [id],
       );
 
-      return rows[0];
+      return (rows as MemberRow[])[0];
     });
   }
   async freeze(id: number, userId: number) {
@@ -452,10 +422,9 @@ export class MembersService {
       throw new BadRequestException('Member is not frozen');
     }
 
-    // Get latest freeze record
-    const rows = (await this.db.execute(MemberQueries.UNFREEZE_GET_LATEST, [
+    const rows = await this.db.query<FreezeHistoryRow>(MemberQueries.UNFREEZE_GET_LATEST, [
       id,
-    ])) as RowDataPacket[];
+    ]);
 
     if (rows.length === 0) {
       throw new BadRequestException('Freeze record not found');
@@ -464,13 +433,13 @@ export class MembersService {
     const freeze = rows[0];
 
     const today = new Date();
-    const start = new Date(freeze.freeze_start_date);
+    const start = new Date(freeze.freeze_start_date as string);
 
     const diffDays = Math.ceil(
       (today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
     );
 
-    const endDate = new Date(member.end_date);
+    const endDate = new Date(member.end_date as string);
     endDate.setDate(endDate.getDate() + diffDays);
 
     const endDateStr = endDate.toISOString().split('T')[0];
@@ -589,13 +558,12 @@ export class MembersService {
         userId,
       ]);
 
-      // 4. Return updated member
-      const [rows] = await conn.query<RowDataPacket[]>(
+      const [rows] = await conn.query(
         MemberQueries.CHANGE_PLAN_AFTER_UPDATE_MEMBER,
         [id],
       );
 
-      return rows[0];
+      return (rows as MemberRow[])[0];
     });
   }
 }

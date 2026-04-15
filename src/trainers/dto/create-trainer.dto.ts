@@ -5,7 +5,6 @@ import { Expose } from 'class-transformer';
 
 export class CreateTrainerWithUserDto  {
 
-  // USER fields
   @ApiProperty({ example: 'John Doe' })
   @IsString()
   @IsNotEmpty()

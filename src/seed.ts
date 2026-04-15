@@ -1,10 +1,7 @@
 import * as mysql from 'mysql2/promise';
 import * as bcrypt from 'bcrypt';
 import * as dotenv from 'dotenv';
-// Login credentials:
-//   Admin:        admin@suratgym.com / password123
-//   Receptionist: priya@suratgym.com / password123
-//   Trainer:      rahul@suratgym.com / password123
+
 dotenv.config();
 
 async function seed() {
@@ -19,10 +16,8 @@ async function seed() {
 
   console.log('Connected to database. Seeding...');
 
-  // Hash password for all users (password = "password123")
   const passwordHash = await bcrypt.hash('password123', 10);
 
-  // ========== 1. USERS (1 Admin, 1 Receptionist, 5 Trainers) ==========
   await connection.execute(
     `INSERT INTO users (name, email, password_hash, role, status) VALUES
      ('Admin User', 'admin@suratgym.com', ?, 'ADMIN', 'ACTIVE'),
@@ -44,7 +39,6 @@ async function seed() {
   );
   console.log('Users seeded');
 
-  // ========== 2. MEMBERSHIP PLANS (5 plans) ==========
   await connection.execute(
     `INSERT INTO membership_plans (name, duration_months, price, pt_sessions, access_hours, status) VALUES
      ('Basic Monthly', 1, 999.00, 0, 'PEAK', 'ACTIVE'),
@@ -55,7 +49,6 @@ async function seed() {
   );
   console.log('Membership plans seeded');
 
-  // ========== 3. TRAINERS (5 trainers linked to users 3-7) ==========
   await connection.execute(
     `INSERT INTO trainers (user_id, specialization, session_rate, commission_rate, shift_start, shift_end, status) VALUES
      (3, 'WEIGHT_TRAINING', 500.00, 20.00, '06:00', '14:00', 'ACTIVE'),
@@ -66,7 +59,6 @@ async function seed() {
   );
   console.log('Trainers seeded');
 
-  // ========== 4. MEMBERS (20 members) ==========
   const members = [
     [
       'MEM-2026-001',
@@ -310,7 +302,6 @@ async function seed() {
     ],
   ];
 
-  // Plan durations for end_date calculation
   const planDurations: Record<number, number> = {
     1: 1,
     2: 1,
@@ -318,7 +309,7 @@ async function seed() {
     4: 6,
     5: 12,
   };
-  // Plan PT sessions
+
   const planPtSessions: Record<number, number> = {
     1: 0,
     2: 4,
@@ -361,7 +352,6 @@ async function seed() {
   }
   console.log('Members seeded (20)');
 
-  // ========== 5. MEMBERSHIP TRANSACTIONS ==========
   for (const m of members) {
     const planId = m[8] as number;
     const startDate = m[9] as string;
@@ -390,7 +380,6 @@ async function seed() {
   }
   console.log('Membership transactions seeded');
 
-  // ========== 6. TRAINER TIME SLOTS (40 slots) ==========
   const slotDates = ['2026-04-09', '2026-04-10', '2026-04-11', '2026-04-12'];
   const timeSlots = [
     ['06:00', '07:00'],
@@ -406,7 +395,7 @@ async function seed() {
   let slotCount = 0;
   for (let trainerId = 1; trainerId <= 5; trainerId++) {
     for (const date of slotDates) {
-      // Each trainer gets 2 slots per day
+
       const trainerSlots = timeSlots.slice(
         (trainerId - 1) % 4,
         ((trainerId - 1) % 4) + 2,
@@ -423,13 +412,9 @@ async function seed() {
   }
   console.log(`Trainer time slots seeded (${slotCount})`);
 
-  // ========== 7. PT SESSIONS (30 sessions) ==========
-  // Book some slots as sessions
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const sessionData = [];
   let sessionNum = 1;
 
-  // Get available slot IDs
   const [slots] = await connection.execute(
     `SELECT id, trainer_id, slot_date, start_time FROM trainer_time_slots WHERE status = 'AVAILABLE' ORDER BY id LIMIT 30`,
   );
@@ -474,7 +459,6 @@ async function seed() {
       ],
     );
 
-    // Update slot to BOOKED
     await connection.execute(
       `UPDATE trainer_time_slots SET status = 'BOOKED' WHERE id = ?`,
       [slot.id],
@@ -484,10 +468,9 @@ async function seed() {
   }
   console.log('PT Sessions seeded (30)');
 
-  // ========== 8. ATTENDANCE (some check-ins) ==========
   const attendanceDates = ['2026-04-07', '2026-04-08', '2026-04-09'];
   for (const date of attendanceDates) {
-    // 8-12 members check in each day
+
     const numCheckIns = 8 + Math.floor(Math.random() * 5);
     for (let i = 1; i <= numCheckIns; i++) {
       const hour = 6 + Math.floor(Math.random() * 12);
@@ -501,7 +484,7 @@ async function seed() {
           [i, checkIn, date],
         );
       } catch {
-        // Skip duplicate entries
+
       }
     }
   }

@@ -2,7 +2,6 @@ import { Injectable, NestMiddleware, UnauthorizedException } from '@nestjs/commo
 import { Request, Response, NextFunction } from 'express';
 import * as jwt from 'jsonwebtoken';
 
-// Extend Express Request to include user
 export interface AuthenticatedRequest extends Request {
   user: {
     userId: number;
@@ -37,7 +36,6 @@ export class AuthMiddleware implements NestMiddleware {
       }
       const decoded = jwt.verify(token, secret) as JwtPayload;
 
-      // Attach user info to request
       (req as AuthenticatedRequest).user = {
         userId: decoded.userId,
         email: decoded.email,

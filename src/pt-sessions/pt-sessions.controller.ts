@@ -18,6 +18,8 @@ import { UserRole } from '../common/enums';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { GetSessionsQueryDto } from './dto/get-session.dto';
 import type { RequestWithUser } from '../common/types/request-with-user';
+import { SessionRow, PaginatedSessionsResponse } from './pt-sessions.types';
+import { MessageResponse } from '../common/types/response.types';
 
 @ApiBearerAuth()
 @Controller('pt-sessions')
@@ -26,49 +28,49 @@ export class PtSessionsController {
   constructor(private readonly ptSessionsService: PtSessionsService) { }
 
   @Get()
-  async findAll(@Query() query: GetSessionsQueryDto, @Req() req: RequestWithUser) {
-    // Build a clean query object matching the service interface
+  async findAll(@Query() query: GetSessionsQueryDto, @Req() req: RequestWithUser): Promise<PaginatedSessionsResponse | { success: boolean; message: string; statusCode: number }> {
+
     const serviceQuery: FindSessionsQuery = {
       page: query.page,
       limit: query.limit,
       memberId: query.memberId,
       status: query.status,
       date: query.date,
-      // TRAINER role: always override trainerId with their own — prevents seeing other trainers' data
+
       trainerId:
         req.user.role === UserRole.TRAINER && req.user.trainerId
-          ? req.user.trainerId          // enforce from JWT — cannot be overridden by query param
-          : query.trainerId,            // admin/receptionist can filter by any trainer
+          ? req.user.trainerId
+          : query.trainerId,
     };
     return this.ptSessionsService.findAll(serviceQuery);
   }
 
   @Get(':id')
-  async findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseIntPipe) id: number): Promise<SessionRow> {
     return this.ptSessionsService.findOne(id);
   }
 
   @Post('book')
   @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST)
-  book(@Body() dto: BookSessionDto) {
+  async book(@Body() dto: BookSessionDto): Promise<SessionRow> {
     return this.ptSessionsService.bookSession(dto);
   }
 
   @Patch(':id/cancel')
   @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST)
-  cancel(@Param('id', ParseIntPipe) id: number) {
+  async cancel(@Param('id', ParseIntPipe) id: number): Promise<MessageResponse> {
     return this.ptSessionsService.cancelSession(id);
   }
 
   @Patch(':id/complete')
   @Roles(UserRole.ADMIN, UserRole.TRAINER)
-  async completeSession(@Param('id', ParseIntPipe) id: number) {
+  async completeSession(@Param('id', ParseIntPipe) id: number): Promise<SessionRow> {
     return this.ptSessionsService.completeSession(id);
   }
 
   @Patch(':id/no-show')
   @Roles(UserRole.ADMIN, UserRole.TRAINER)
-  async markNoShow(@Param('id', ParseIntPipe) id: number) {
+  async markNoShow(@Param('id', ParseIntPipe) id: number): Promise<MessageResponse> {
     return this.ptSessionsService.markNoShow(id);
   }
 
@@ -77,12 +79,12 @@ export class PtSessionsController {
   async reschedule(
     @Param('id', ParseIntPipe) id: number,
     @Param('slotId', ParseIntPipe) slotId: number,
-  ) {
+  ): Promise<SessionRow> {
     return this.ptSessionsService.rescheduleSession(id, slotId);
   }
   
   @Get('member/:memberId')
-  async getMemberSessions(@Param('memberId', ParseIntPipe) memberId: number) {
+  async getMemberSessions(@Param('memberId', ParseIntPipe) memberId: number): Promise<SessionRow[]> {
     return this.ptSessionsService.getMemberSessions(memberId);
   }
 }

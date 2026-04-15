@@ -32,7 +32,9 @@ export const AttendanceQueries = {
     ORDER BY a.check_in_time DESC
   `,
 
-  GET_BY_MEMBER_BASE: `
-    SELECT * FROM attendance WHERE member_id = ? AND deleted_at IS NULL
+  GET_BY_MEMBER: (whereSQL: string) => `
+    SELECT * FROM attendance 
+    WHERE ${whereSQL} 
+    ORDER BY attendance_date DESC
   `,
 };

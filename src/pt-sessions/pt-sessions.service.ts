@@ -11,44 +11,14 @@ import { SessionStatus, SessionSource, MembershipStatus, SlotStatus } from '../c
 import { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { PtSessionQueries } from './queries/pt-sessions.queries';
 
-export interface MemberRow {
-  id: number;
-  member_code: string;
-  status: string;
-  remaining_pt_sessions: number;
-  membership_plan_id: number;
-}
-
-export interface TrainerRow {
-  id: number;
-  specialization: string;
-  session_rate: number;
-  status: string;
-}
-
-export interface SlotRow {
-  id: number;
-  trainer_id: number;
-  slot_date: string;
-  start_time: string;
-  end_time: string;
-  status: string;
-}
-
-export interface SessionRow {
-  id: number;
-  session_code: string;
-  member_id: number;
-  trainer_id: number;
-  slot_id: number;
-  session_type: string;
-  session_source: string;
-  amount_charged: number;
-  session_date: string;
-  status: string;
-  member_name: string;
-  trainer_name: string;
-}
+import {
+  MemberRow,
+  TrainerRow,
+  SlotRow,
+  SessionRow,
+  PaginatedSessionsResponse,
+} from './pt-sessions.types';
+import { MessageResponse } from '../common/types/response.types';
 
 export interface FindSessionsQuery {
   page?: string | number;
@@ -63,19 +33,16 @@ export interface FindSessionsQuery {
 export class PtSessionsService {
   constructor(private db: DatabaseService) { }
 
-  /** Get all sessions with filters */
-  async findAll(query: FindSessionsQuery) {
+  async findAll(query: FindSessionsQuery): Promise<PaginatedSessionsResponse | { success: boolean; message: string; statusCode: number }> {
     try {
-      // Pagination
+
       const page = Number(query.page) > 0 ? Number(query.page) : 1;
       const limit = Number(query.limit) > 0 ? Number(query.limit) : 20;
       const offset = (page - 1) * limit;
 
-      // WHERE conditions
       const where: string[] = ['ps.deleted_at IS NULL'];
       const params: (string | number)[] = [];
 
-      // Filters
       if (query.memberId) {
         where.push('ps.member_id = ?');
         params.push(Number(query.memberId));
@@ -95,15 +62,12 @@ export class PtSessionsService {
         const date = new Date(query.date);
         if (!isNaN(date.getTime())) {
           where.push('DATE(ps.session_date) = ?');
-          params.push(date.toISOString().split('T')[0]); // YYYY-MM-DD
+          params.push(date.toISOString().split('T')[0]);
         }
       }
 
       const whereSQL = where.join(' AND ');
 
-      // -----------------------
-      // COUNT QUERY
-      // -----------------------
       const countResult = await this.db.query<{ total: number }>(
         PtSessionQueries.FIND_ALL_COUNT(whereSQL),
         params
@@ -111,10 +75,7 @@ export class PtSessionsService {
 
       const total = countResult?.[0]?.total || 0;
 
-      // -----------------------
-      // DATA QUERY
-      // -----------------------
-      const sessions = await this.db.query(
+      const sessions = await this.db.query<SessionRow>(
         PtSessionQueries.FIND_ALL(whereSQL, limit, offset),
         params
       );
@@ -138,8 +99,8 @@ export class PtSessionsService {
       };
     }
   }
-  /** Get single session */
-  async findOne(id: number) {
+  
+  async findOne(id: number): Promise<SessionRow> {
     const sessions = await this.db.query<SessionRow>(
       PtSessionQueries.FIND_ONE,
       [id],
@@ -152,23 +113,11 @@ export class PtSessionsService {
     return sessions[0];
   }
 
-  /**
-   * BOOK A PT SESSION - 3-WRITE TRANSACTION (CRITICAL)
-   *
-   * This is the MOST IMPORTANT business logic:
-   * 1. INSERT the session
-   * 2. UPDATE slot → Booked
-   * 3. DECREMENT remaining sessions (if plan-based)
-   *
-   * Concurrency: We INSERT first and catch UNIQUE constraint errors
-   * instead of SELECT → INSERT pattern.
-   */
-  async bookSession(dto: BookSessionDto) {
-    return this.db.transaction(async (conn) => {
-      // 🔒 STEP 1: LOCK MEMBER
-      const [memberRows] = await conn.query<RowDataPacket[]>(
-        PtSessionQueries.LOCK_MEMBER,
+  async bookSession(dto: BookSessionDto): Promise<SessionRow> {
+    return this.db.transaction<SessionRow>(async (conn) => {
 
+      const [memberRows] = await conn.query<MemberRow[]>(
+        PtSessionQueries.LOCK_MEMBER,
         [dto.memberId],
       );
 
@@ -182,9 +131,7 @@ export class PtSessionsService {
         throw new UnprocessableEntityException('Membership not active');
       }
 
-
-      // 🔒 STEP 2: LOCK SLOT (and derive trainer from slot)
-      const [slotRows] = await conn.query<RowDataPacket[]>(
+      const [slotRows] = await conn.query<SlotRow[]>(
         PtSessionQueries.LOCK_SLOT,
         [dto.slotId],
       );
@@ -199,8 +146,7 @@ export class PtSessionsService {
         throw new ConflictException('Slot already booked');
       }
 
-      // 🔒 STEP 3: LOCK TRAINER (derived from slot)
-      const [trainerRows] = await conn.query<RowDataPacket[]>(
+      const [trainerRows] = await conn.query<TrainerRow[]>(
         PtSessionQueries.LOCK_TRAINER,
         [slot.trainer_id],
       );
@@ -211,10 +157,8 @@ export class PtSessionsService {
 
       const trainer = trainerRows[0];
 
-      // ✅ sessionType comes from trainer (NOT from DTO)
       const sessionType = trainer.specialization;
 
-      // 🔥 STEP 4: DETERMINE PLAN vs PAID
       let source: SessionSource;
       let amount = 0;
 
@@ -234,7 +178,6 @@ export class PtSessionsService {
         amount = trainer.session_rate;
       }
 
-      // 🔥 STEP 5: UPDATE SLOT → BOOKED
       const [slotUpdate] = await conn.execute<ResultSetHeader>(
         PtSessionQueries.CHECK_SLOT_BOOKED,
         [SlotStatus.BOOKED, dto.slotId, SlotStatus.AVAILABLE],
@@ -244,10 +187,9 @@ export class PtSessionsService {
         throw new ConflictException('Slot already booked');
       }
 
-      // 🔥 STEP 6: GENERATE SESSION CODE
       const year = new Date().getFullYear();
 
-      const [lastRows] = await conn.query<RowDataPacket[]>(
+      const [lastRows] = await conn.query<SessionRow[]>(
         PtSessionQueries.GENERATE_SESSION_CODE,
         [`PT-${year}-%`],
       );
@@ -262,16 +204,15 @@ export class PtSessionsService {
 
       const sessionCode = `PT-${year}-${String(next).padStart(3, '0')}`;
 
-      // 🔥 STEP 7: INSERT SESSION
       const [insert] = await conn.execute<ResultSetHeader>(
         PtSessionQueries.INSERT_SESSION,
 
         [
           sessionCode,
           dto.memberId,
-          slot.trainer_id, // ✅ from slot (NOT dto)
+          slot.trainer_id,
           dto.slotId,
-          sessionType,     // ✅ from trainer
+          sessionType,
           source,
           amount,
           slot.slot_date,
@@ -279,8 +220,7 @@ export class PtSessionsService {
         ],
       );
 
-      // 🔥 STEP 8: RETURN RESULT
-      const [resultRows] = await conn.query<RowDataPacket[]>(
+      const [resultRows] = await conn.query<SessionRow[]>(
         PtSessionQueries.GET_SESSION_BY_ID,
         [insert.insertId],
       );
@@ -288,15 +228,11 @@ export class PtSessionsService {
       return resultRows[0];
     });
   }
-  /**
-   * CANCEL A SESSION
-   * - Slot → Available
-   * - Restore session count (if PLAN)
-   */
-  async cancelSession(id: number) {
-    return this.db.transaction(async (conn) => {
-      // 🔒 STEP 1: LOCK SESSION
-      const [sessionRows] = await conn.query<RowDataPacket[]>(
+  
+  async cancelSession(id: number): Promise<MessageResponse> {
+    return this.db.transaction<MessageResponse>(async (conn) => {
+
+      const [sessionRows] = await conn.query<SessionRow[]>(
         PtSessionQueries.LOCK_CANCEL_STATUS,
         [id],
       );
@@ -307,7 +243,6 @@ export class PtSessionsService {
 
       const session = sessionRows[0];
 
-      // 🚫 STEP 2: VALIDATION
       if (session.status === SessionStatus.CANCELLED) {
         throw new BadRequestException('Session already cancelled');
       }
@@ -316,19 +251,16 @@ export class PtSessionsService {
         throw new BadRequestException('Cannot cancel completed session');
       }
 
-      // 🔥 STEP 3: UPDATE SESSION
       await conn.execute(
         PtSessionQueries.CANCEL_SESSION,
         [SessionStatus.CANCELLED, id],
       );
 
-      // 🔥 STEP 4: FREE SLOT
       await conn.execute(
         PtSessionQueries.FREE_SLOT,
         [SlotStatus.AVAILABLE, session.slot_id],
       );
 
-      // 🔥 STEP 5: RESTORE MEMBER SESSION (ONLY PLAN)
       if (session.session_source === SessionSource.PLAN) {
         await conn.execute(
           PtSessionQueries.RESTORE_MEMBER_SESSION,
@@ -340,11 +272,10 @@ export class PtSessionsService {
     });
   }
 
-  /** Mark session as completed */
-  async completeSession(id: number) {
-    return this.db.transaction(async (conn) => {
-      // 🔒 STEP 1: LOCK SESSION
-      const [rows] = await conn.query<RowDataPacket[]>(
+  async completeSession(id: number): Promise<SessionRow> {
+    return this.db.transaction<SessionRow>(async (conn) => {
+
+      const [rows] = await conn.query<SessionRow[]>(
         PtSessionQueries.LOCK_CANCEL_STATUS,
         [id],
       );
@@ -355,23 +286,18 @@ export class PtSessionsService {
 
       const session = rows[0];
 
-      // 🚫 STEP 2: VALIDATION
       if (session.status !== SessionStatus.BOOKED) {
         throw new BadRequestException(
           'Only booked sessions can be completed',
         );
       }
-      if (session.status === SessionStatus.CANCELLED) {
-        throw new BadRequestException('Cancelled session cannot be completed');
-      }
-      // 🔥 STEP 3: UPDATE STATUS
+
       await conn.execute(
         PtSessionQueries.UPDATE_PT_SESSION_STATUS,
         [SessionStatus.COMPLETED, id],
       );
 
-      // 🔥 STEP 4: RETURN UPDATED SESSION
-      const [updatedRows] = await conn.query<RowDataPacket[]>(
+      const [updatedRows] = await conn.query<SessionRow[]>(
         PtSessionQueries.GET_SESSION_BY_ID,
         [id],
       );
@@ -380,8 +306,7 @@ export class PtSessionsService {
     });
   }
 
-  /** Mark session as no-show */
-  async markNoShow(id: number) {
+  async markNoShow(id: number): Promise<MessageResponse> {
     const session = await this.findOne(id);
 
     if (session.status !== SessionStatus.BOOKED) {
@@ -391,19 +316,18 @@ export class PtSessionsService {
     }
 
     return this.db.transaction(async (conn) => {
-      // 1️⃣ Update session → NO_SHOW
+
       await conn.execute(
         PtSessionQueries.UPDATE_SESSION_NO_SHOW,
         [SessionStatus.NO_SHOW, id],
       );
-
 
       return {
         message: 'Session marked as no-show',
       };
     });
   }
-  async rescheduleSession(sessionId: number, newSlotId: number) {
+  async rescheduleSession(sessionId: number, newSlotId: number): Promise<SessionRow> {
     const session = await this.findOne(sessionId);
 
     if (session.status !== SessionStatus.BOOKED) {
@@ -412,46 +336,48 @@ export class PtSessionsService {
       );
     }
 
-    return this.db.transaction(async (conn) => {
-      // 1️⃣ Get new slot
-      const [newSlotRows] = await conn.query<RowDataPacket[]>(
+    return this.db.transaction<SessionRow>(async (conn) => {
+
+      const [newSlotRows] = await conn.query<SlotRow[]>(
         PtSessionQueries.GET_SLOT_BY_ID,
         [newSlotId, SlotStatus.AVAILABLE],
       );
 
       if (newSlotRows.length === 0) {
-        throw new ConflictException('New slot is not available');
+        throw new ConflictException('New slot is not available or has been deleted');
       }
 
       const newSlot = newSlotRows[0];
 
-      // 2️⃣ Free old slot
       await conn.execute(
         PtSessionQueries.FREE_SLOT,
         [SlotStatus.AVAILABLE, session.slot_id],
       );
 
-      // 3️⃣ Book new slot (CONCURRENCY SAFE)
       const [updateSlot] = await conn.execute<ResultSetHeader>(
         PtSessionQueries.UPDATE_TRAINER_TIME_SLOT,
         [SlotStatus.BOOKED, newSlotId, SlotStatus.AVAILABLE],
       );
 
       if (updateSlot.affectedRows === 0) {
-        throw new ConflictException('Slot already booked by someone else');
+        throw new ConflictException('Slot was booked by someone else during this process');
       }
 
-      // 4️⃣ Update session
       await conn.execute(
         PtSessionQueries.UPDATE_SESSION_SLOT,
-        [newSlotId, newSlot.slot_date, sessionId],
+        [newSlotId, newSlot.slot_date, newSlot.trainer_id, sessionId],
       );
 
-      return this.findOne(sessionId);
+      const [finalRows] = await conn.query<SessionRow[]>(
+        PtSessionQueries.GET_SESSION_BY_ID,
+        [sessionId],
+      );
+
+      return finalRows[0];
     });
   }
-  /** Get sessions for a specific member */
-  async getMemberSessions(memberId: number) {
+  
+  async getMemberSessions(memberId: number): Promise<SessionRow[]> {
     return this.db.query<SessionRow>(
       PtSessionQueries.GET_MEMBER_SESSIONS,
       [memberId],

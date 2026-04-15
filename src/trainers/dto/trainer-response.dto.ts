@@ -15,7 +15,7 @@ export class TrainerResponseDto {
   @Expose()
   session_rate!: number;
 
-  @Expose({ groups: [UserRole.ADMIN] }) // ✅ ONLY ADMIN CAN SEE
+  @Expose({ groups: [UserRole.ADMIN] })
   commission_rate!: number;
 
   @Expose()

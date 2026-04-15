@@ -12,7 +12,6 @@ export class MembershipResponseDto {
   @Expose()
   duration_months!: number;
 
-  // ✅ HIDE from TRAINER
   @Expose({ groups: [UserRole.ADMIN, UserRole.RECEPTIONIST] })
   price!: number;
 

@@ -29,7 +29,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         const resp = exceptionResponse as Record<string, unknown>;
         message = (resp.message as string) || (resp.error as string) || message;
 
-        // Handle class-validator errors (array of messages)
         if (Array.isArray(resp.message)) {
           message = resp.message.join(', ');
         }

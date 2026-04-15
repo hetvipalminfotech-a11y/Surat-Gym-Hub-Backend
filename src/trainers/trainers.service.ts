@@ -12,27 +12,8 @@ import { UserRole, UserStatus } from 'src/common/enums';
 import * as bcrypt from 'bcrypt';
 import { UpdateTrainerDto } from './dto/update-trainer.dto';
 import { TrainerQueries } from './queries/trainers.queries';
-export interface TrainerRow {
-  id: number;
-  user_id: number;
-  specialization: string;
-  session_rate: number;
-  commission_rate: number;
-  shift_start: string | null;
-  shift_end: string | null;
-  status: string;
-  name: string;
-  email: string;
-}
-
-export interface SlotRow {
-  id: number;
-  trainer_id: number;
-  slot_date: string;
-  start_time: string;
-  end_time: string;
-  status: string;
-}
+import { TrainerRow, SlotRow } from './trainers.types';
+import { MessageResponse } from '../common/types/response.types';
 function normalizeTime(time: string): string {
   const [h, m] = time.split(':');
   return `${h.padStart(2, '0')}:${m.padStart(2, '0')}:00`;
@@ -41,13 +22,11 @@ function normalizeTime(time: string): string {
 export class TrainersService {
   constructor(private db: DatabaseService) {}
 
-  /** Get all trainers */
-  async findAll() {
+  async findAll(): Promise<TrainerRow[]> {
     return this.db.query<TrainerRow>(TrainerQueries.FIND_ALL);
   }
 
-  /** Get one trainer */
-  async findOne(id: number) {
+  async findOne(id: number): Promise<TrainerRow> {
    
     const rows = await this.db.query<TrainerRow>(TrainerQueries.FIND_ONE,[id]);
 
@@ -58,10 +37,9 @@ export class TrainersService {
     return rows[0];
   }
 
-  /** Create trainer */
-  async createTrainerWithUser(dto: CreateTrainerWithUserDto) {
-    // 1️⃣ Check email already exists
-    const existing = await this.db.query<RowDataPacket[]>(
+  async createTrainerWithUser(dto: CreateTrainerWithUserDto): Promise<TrainerRow> {
+
+    const existing = await this.db.query<{ id: number }>(
       TrainerQueries.CHECK_EMAIL_EXISTS,
       [dto.email],
     );
@@ -70,11 +48,10 @@ export class TrainersService {
       throw new ConflictException('Email already exists');
     }
 
-    // 2️⃣ Hash password
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
-    return this.db.transaction(async (conn) => {
-      // 3️⃣ Create USER (role = TRAINER)
+    return this.db.transaction<TrainerRow>(async (conn) => {
+
       const [userResult] = await conn.execute<ResultSetHeader>(
         TrainerQueries.CREATE_USER,
         [
@@ -88,7 +65,6 @@ export class TrainersService {
 
       const userId = userResult.insertId;
 
-      // 4️⃣ Create TRAINER
       const [trainerResult] = await conn.execute<ResultSetHeader>(
         TrainerQueries.CREATE_TRAINER,
         [
@@ -103,8 +79,7 @@ export class TrainersService {
 
       const trainerId = trainerResult.insertId;
 
-      // 5️⃣ Return joined data
-      const [rows] = await conn.query<RowDataPacket[]>(
+      const [rows] = await conn.query<TrainerRow[]>(
         TrainerQueries.GET_TRAINER_BY_ID,
         [trainerId],
       );
@@ -113,8 +88,7 @@ export class TrainersService {
     });
   }
 
-  /** Update trainer */
- async update(id: number, dto: UpdateTrainerDto) {
+ async update(id: number, dto: UpdateTrainerDto): Promise<TrainerRow> {
   console.log("log");
   await this.findOne(id);
 
@@ -161,9 +135,7 @@ console.log(fields);
   return this.findOne(id);
 }
 
-  /** Get slots */
-  /** ✅ Get slots */
-  async getSlots(trainerId: number, date?: string) {
+  async getSlots(trainerId: number, date?: string): Promise<SlotRow[]> {
     let sql = TrainerQueries.GET_SLOTS_BASE;
     const params: (string | number)[] = [trainerId];
 
@@ -177,8 +149,10 @@ console.log(fields);
     return this.db.query<SlotRow>(sql, params);
   }
 
-  /** ✅ Create single slot with overlap validation */
-  async createSlot(dto: CreateSlotDto) {
+  async createSlot(dto: CreateSlotDto): Promise<SlotRow> {
+
+    await this.findOne(dto.trainerId);
+
     const normalizeTime = (time: string): string => {
       const [h, m, s = '00'] = time.split(':');
       return `${h.padStart(2, '0')}:${m.padStart(2, '0')}:${s.padStart(2, '0')}`;
@@ -191,7 +165,6 @@ console.log(fields);
       throw new BadRequestException('Start time must be before end time');
     }
 
-    // ✅ OVERLAP CHECK
     const overlap = await this.db.query<{ id: number }>(
       TrainerQueries.SLOT_OVERLAP_CHECK,
       [dto.trainerId, dto.slotDate, endTime, startTime],
@@ -213,7 +186,7 @@ console.log(fields);
 
       return rows[0];
     } catch (error: unknown) {
-      // ✅ HANDLE DUPLICATE ERROR (DB LEVEL)
+
       if (
         typeof error === 'object' &&
         error !== null &&
@@ -226,13 +199,16 @@ console.log(fields);
       throw error;
     }
   }
-  /** ✅ Bulk slots (transaction + validation) */
+  
   async createBulkSlots(
     trainerId: number,
     slotDate: string,
     slots: { startTime: string; endTime: string }[],
-  ) {
-    return this.db.transaction(async (conn) => {
+  ): Promise<SlotRow[]> {
+
+    await this.findOne(trainerId);
+
+    return this.db.transaction<SlotRow[]>(async (conn) => {
       const results: SlotRow[] = [];
 
       const normalize = (t: string) => {
@@ -250,8 +226,7 @@ console.log(fields);
           );
         }
 
-        // ✅ CORRECT overlap check
-        const [existing] = await conn.execute<RowDataPacket[]>(
+        const [existing] = await conn.execute<SlotRow[]>(
           TrainerQueries.BULK_SLOT_OVERLAP_CHECK,
           [trainerId, slotDate, endTime, startTime],
         );
@@ -262,14 +237,12 @@ console.log(fields);
           );
         }
 
-        // ✅ insert
         const [insert] = await conn.execute<ResultSetHeader>(
           TrainerQueries.BULK_INSERT_SLOT,
           [trainerId, slotDate, startTime, endTime],
         );
 
-        // ✅ fetch inserted row (SAFE)
-        const [rows] = await conn.execute<RowDataPacket[]>(
+        const [rows] = await conn.execute<SlotRow[]>(
           TrainerQueries.GET_SLOT_BY_ID,
           [insert.insertId],
         );
@@ -278,19 +251,27 @@ console.log(fields);
           throw new Error('Inserted slot not found');
         }
 
-        results.push(rows[0] as SlotRow);
+        results.push(rows[0]);
       }
 
       return results;
     });
   }
 
-  /** Delete trainer */
-  async remove(id: number) {
+  async remove(id: number): Promise<MessageResponse> {
     await this.findOne(id);
 
-    await this.db.execute(TrainerQueries.DELETE_TRAINER, [id]);
+    await this.db.transaction(async (conn) => {
 
-    return { message: 'Trainer deleted successfully' };
+      await conn.execute(TrainerQueries.DELETE_TRAINER, [id]);
+
+      await conn.execute(TrainerQueries.DELETE_TRAINER_SLOTS, [id]);
+
+      await conn.execute(TrainerQueries.DELETE_TRAINER_SESSIONS, [id]);
+
+      await conn.execute(TrainerQueries.DELETE_ASSOCIATED_USER, [id]);
+    });
+
+    return { message: 'Trainer and related data deleted successfully' };
   }
 }

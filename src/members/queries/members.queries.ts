@@ -3,7 +3,7 @@ export const MemberQueries = {
     SELECT COUNT(*) as total FROM members m WHERE ${whereSQL}
   `,
 
- FIND_ALL_DATA: (whereSQL: string, limit: number, offset: number) => `
+  FIND_ALL_DATA: (whereSQL: string, limit: number, offset: number) => `
   SELECT m.*, mp.name as plan_name
   FROM members m
   LEFT JOIN membership_plans mp ON m.membership_plan_id = mp.id
@@ -83,20 +83,27 @@ export const MemberQueries = {
     VALUES (?, ?, ?, ?, 'RENEW', ?, ?, 'SUCCESS', ?)
   `,
 
+  GET_PLAN_DETAIL: `
+  SELECT * FROM membership_plans WHERE id = ? AND status = ?`,
+
+  RETURN_MEMBER: `
+  SELECT * FROM members WHERE id = ?
+  `,
+
   RENEW_STATUS_HISTORY: `
     INSERT INTO member_status_history
     (member_id, old_status, new_status, created_by)
     VALUES (?, ?, ?, ?)
   `,
 
-  RETURN_UPDATE_MEMBER:`SELECT m.*, mp.name as plan_name
+  RETURN_UPDATE_MEMBER: `SELECT m.*, mp.name as plan_name
        FROM members m
        LEFT JOIN membership_plans mp ON m.membership_plan_id = mp.id
        WHERE m.id = ?`,
 
-    UPDATE_MEMBER_STATUS:`
+  UPDATE_MEMBER_STATUS: `
     UPDATE members SET status = 'FROZEN' WHERE id = ?`,
-    
+
   FREEZE_HISTORY_INSERT: `
     INSERT INTO member_freeze_history
     (member_id, freeze_start_date, created_by)
@@ -158,7 +165,7 @@ export const MemberQueries = {
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `,
 
-  CHANGE_PLAN_AFTER_UPDATE_MEMBER:`
+  CHANGE_PLAN_AFTER_UPDATE_MEMBER: `
   SELECT m.*, mp.name as plan_name
        FROM members m
        LEFT JOIN membership_plans mp ON m.membership_plan_id = mp.id

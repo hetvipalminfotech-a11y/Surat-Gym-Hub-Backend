@@ -1,5 +1,5 @@
 export const AuthQueries = {
-  // ================= USERS =================
+
   FIND_USER_BY_EMAIL: 'SELECT * FROM users WHERE email = ?',
 
   CHECK_EMAIL_EXISTS: 'SELECT id FROM users WHERE email = ?',
@@ -23,11 +23,8 @@ export const AuthQueries = {
 
   GET_USER_BY_ID: 'SELECT * FROM users WHERE id = ?',
 
-  GET_PROFILE: 'SELECT id, name, email, role, status FROM users WHERE id = ?',
-
   GET_TRAINER_ID_BY_USER_ID: `SELECT id AS trainer_id FROM trainers WHERE user_id = ? AND status = 'ACTIVE' LIMIT 1`,
 
-  // ================= TOKENS =================
   INSERT_TOKEN: `
     INSERT INTO tokens (access_token_hash, refresh_token_hash, expired_at, status, user_id)
     VALUES (?, ?, ?, ?, ?)

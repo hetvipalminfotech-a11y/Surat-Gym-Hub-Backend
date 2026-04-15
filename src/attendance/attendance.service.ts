@@ -7,7 +7,7 @@ import {
 import { DatabaseService } from '../database/database.service';
 import { ResultSetHeader } from 'mysql2';
 import { MembershipStatus } from 'src/common/enums';
-import { AttendanceQueries } from './queries/attendance.queries' // adjust path if needed
+import { AttendanceQueries } from './queries/attendance.queries'
 
 export interface AttendanceRow {
   id: number;
@@ -22,7 +22,6 @@ export interface AttendanceRow {
 export class AttendanceService {
   constructor(private db: DatabaseService) {}
 
-  /** Check-in a member */
   async checkIn(memberId: number) {
     const members = await this.db.query<{ id: number; status: string; name: string }>(
       AttendanceQueries.CHECK_MEMBER,
@@ -68,7 +67,6 @@ export class AttendanceService {
     }
   }
 
-  /** Check-out a member */
   async checkOut(memberId: number) {
     const today = new Date().toISOString().split('T')[0];
     const now = new Date()
@@ -96,7 +94,6 @@ export class AttendanceService {
     return { message: 'Checked out successfully', checkOutTime: now };
   }
 
-  /** Get attendance for a date */
   async getByDate(date: string) {
     return this.db.query<AttendanceRow>(
       AttendanceQueries.GET_BY_DATE,
@@ -104,17 +101,17 @@ export class AttendanceService {
     );
   }
 
-  /** Get attendance for a member */
   async getByMember(memberId: number, month?: string) {
-    let sql = AttendanceQueries.GET_BY_MEMBER_BASE;
-    const params: (string | number | boolean | null | Date)[] = [memberId];
+    const whereClauses = ['member_id = ?', 'deleted_at IS NULL'];
+    const params: (string | number)[] = [memberId];
 
     if (month) {
-      sql += ` AND DATE_FORMAT(attendance_date, '%Y-%m') = ?`;
+      whereClauses.push("DATE_FORMAT(attendance_date, '%Y-%m') = ?");
       params.push(month);
     }
 
-    sql += ` ORDER BY attendance_date DESC`;
+    const whereSQL = whereClauses.join(' AND ');
+    const sql = AttendanceQueries.GET_BY_MEMBER(whereSQL);
 
     return this.db.query<AttendanceRow>(sql, params);
   }

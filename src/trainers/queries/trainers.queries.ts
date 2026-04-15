@@ -42,7 +42,21 @@ export const TrainerQueries = {
   `,
 
   DELETE_TRAINER: `
-    UPDATE trainers SET deleted_at = NOW() WHERE id = ?
+    UPDATE trainers SET deleted_at = NOW(), status = 'INACTIVE' WHERE id = ?
+  `,
+
+  DELETE_TRAINER_SLOTS: `
+    UPDATE trainer_time_slots SET deleted_at = NOW() WHERE trainer_id = ? AND deleted_at IS NULL
+  `,
+
+  DELETE_TRAINER_SESSIONS: `
+    UPDATE pt_sessions SET deleted_at = NOW() WHERE trainer_id = ? AND deleted_at IS NULL
+  `,
+
+  DELETE_ASSOCIATED_USER: `
+    UPDATE users SET deleted_at = NOW(), status = 'INACTIVE'
+    WHERE id = (SELECT user_id FROM trainers WHERE id = ?) 
+    AND deleted_at IS NULL
   `,
 
   GET_SLOTS_BASE: `

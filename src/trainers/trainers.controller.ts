@@ -25,95 +25,79 @@ import { UpdateTrainerDto } from './dto/update-trainer.dto';
 import { CreateBulkSlotDto } from './dto/create-bulkslot.dto';
 import { plainToInstance } from 'class-transformer';
 import { TrainerResponseDto } from './dto/trainer-response.dto';
+import { TrainerRow, SlotRow } from './trainers.types';
+import { MessageResponse } from '../common/types/response.types';
 @ApiBearerAuth()
 @Controller('trainers')
 @UseGuards(RolesGuard)
 export class TrainersController {
   constructor(private readonly trainersService: TrainersService) {}
 
-  // ========================
-  // GET ALL TRAINERS
-  // ========================
   @Get()
   @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST)
-  async findAll(@Req() req: RequestWithUser) {
+  async findAll(@Req() req: RequestWithUser): Promise<TrainerResponseDto[]> {
     const trainers = await this.trainersService.findAll();
     return plainToInstance(TrainerResponseDto, trainers, {
-      groups: [req.user.role], // 🔥 dynamic role-based serialization
+      groups: [req.user.role],
       excludeExtraneousValues: true,
-    });
+    }) as unknown as TrainerResponseDto[];
   }
 
-  // ========================
-  // GET ONE TRAINER
-  // ========================
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.RECEPTIONIST)
   async findOne(
   @Param('id', ParseIntPipe) id: number,
   @Req() req: RequestWithUser,
-) {
+): Promise<TrainerResponseDto> {
   const trainer = await this.trainersService.findOne(id);
 
   return plainToInstance(TrainerResponseDto, trainer, {
     groups: [req.user.role],
     excludeExtraneousValues: true,
-  });
+  }) as unknown as TrainerResponseDto;
 }
 
-  // ========================
-  // CREATE TRAINER (ADMIN ONLY)
-  // ========================
   @Post('create-with-user')
   @Roles(UserRole.ADMIN)
-  async create(@Body() dto: CreateTrainerWithUserDto) {
+  async create(@Body() dto: CreateTrainerWithUserDto): Promise<TrainerRow> {
     return this.trainersService.createTrainerWithUser(dto);
   }
 
-  // ========================
-  // UPDATE TRAINER (ADMIN ONLY)
-  // ========================
   @Patch('update/:id')
   @Roles(UserRole.ADMIN)
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateTrainerDto,
-  ) {
+  ): Promise<TrainerRow> {
     return this.trainersService.update(id, dto);
   }
 
-  // ========================
-  // DELETE TRAINER (ADMIN ONLY)
-  // ========================
   @Delete(':id')
   @Roles(UserRole.ADMIN)
-  async remove(@Param('id', ParseIntPipe) id: number) {
+  async remove(@Param('id', ParseIntPipe) id: number): Promise<MessageResponse> {
     return this.trainersService.remove(id);
   }
 
-  // ========================
-  // GET SLOTS
-  // ========================
   @Get(':id/slots')
-  getSlots(
+  async getSlots(
     @Param('id', ParseIntPipe) id: number,
     @Query('date') date?: string,
-  ) {
+  ): Promise<SlotRow[]> {
     return this.trainersService.getSlots(id, date);
   }
 
   @Post('slots')
   @Roles(UserRole.ADMIN, UserRole.TRAINER)
-  createSlot(@Body() dto: CreateSlotDto) {
+  async createSlot(@Body() dto: CreateSlotDto): Promise<SlotRow> {
     return this.trainersService.createSlot(dto);
   }
 
   @Post(':id/slots/bulk')
   @Roles(UserRole.ADMIN, UserRole.TRAINER)
-  createBulk(
+  async createBulk(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: CreateBulkSlotDto,
-   ) {
+   ): Promise<SlotRow[]> {
     return this.trainersService.createBulkSlots(id, body.slotDate, body.slots);
   }
 }
