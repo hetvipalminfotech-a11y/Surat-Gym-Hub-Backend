@@ -137,7 +137,11 @@ SELECT
     WHEN COUNT(mt.id) = MAX(max_plan.max_bookings) THEN 'YES'
     ELSE 'NO'
   END AS is_most_popular_plan,
-  MAX(mps.specialization) AS most_popular_specialization
+  MAX(mps.specialization) AS most_popular_specialization,
+  MAX(mom.month) AS latest_month,
+  MAX(mom.revenue) AS latest_month_revenue,
+  MAX(mom.prev_revenue) AS previous_month_revenue,
+  MAX(mom.mom_growth_percentage) AS mom_growth_percentage
 FROM membership_plans mp
 LEFT JOIN membership_transactions mt 
   ON mp.id = mt.plan_id 
@@ -168,5 +172,40 @@ CROSS JOIN (
   ORDER BY COUNT(*) DESC
   LIMIT 1
 ) mps
+CROSS JOIN (
+  SELECT *
+  FROM (
+    SELECT 
+      curr.month,
+      curr.revenue,
+      prev.revenue AS prev_revenue,
+      ROUND(
+        ((curr.revenue - prev.revenue) / prev.revenue) * 100, 2
+      ) AS mom_growth_percentage
+    FROM (
+      SELECT 
+        DATE_FORMAT(created_at, '%Y-%m') AS month,
+        SUM(amount) AS revenue
+      FROM membership_transactions
+      WHERE status = 'SUCCESS'
+      GROUP BY month
+    ) curr
+    LEFT JOIN (
+      SELECT 
+        DATE_FORMAT(created_at, '%Y-%m') AS month,
+        SUM(amount) AS revenue
+      FROM membership_transactions
+      WHERE status = 'SUCCESS'
+      GROUP BY month
+    ) prev
+    ON prev.month = DATE_FORMAT(
+      DATE_SUB(STR_TO_DATE(curr.month, '%Y-%m'), INTERVAL 1 MONTH),
+      '%Y-%m'
+    )
+  ) t
+  WHERE prev_revenue IS NOT NULL
+  ORDER BY month DESC
+  LIMIT 1
+) mom
 GROUP BY mp.id, mp.name
 ORDER BY plan_revenue DESC;
