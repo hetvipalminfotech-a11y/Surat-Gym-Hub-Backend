@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsEnum, IsOptional, Min } from 'class-validator';
+import { IsString, IsNumber, IsEnum, IsOptional, Min, Matches } from 'class-validator';
 import { AccessHours, PlanStatus } from '../../common/enums';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -6,6 +6,7 @@ export class UpdatePlanDto {
   @ApiProperty()
   @IsString()
   @IsOptional()
+   @Matches(/^[^\p{Extended_Pictographic}]+$/u, { message: 'name cannot contain emojis' })
   name?: string;
 
   @ApiProperty()

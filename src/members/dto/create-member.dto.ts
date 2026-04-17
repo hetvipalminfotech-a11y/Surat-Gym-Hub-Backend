@@ -16,6 +16,7 @@ export class CreateMemberDto {
   @ApiProperty({ example: 'John Doe' })
   @IsString()
   @IsNotEmpty({ message: 'Name is required' })
+   @Matches(/^[^\p{Extended_Pictographic}]+$/u, { message: 'name cannot contain emojis' })
   name!: string;
 
   @ApiProperty({ example: '1234567890' })

@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsEmail,
   Min,
+  Matches,
 } from 'class-validator';
 import { Gender, MembershipStatus } from '../../common/enums';
 import { ApiProperty } from '@nestjs/swagger';
@@ -13,6 +14,7 @@ export class UpdateMemberDto {
   @ApiProperty()
   @IsString()
   @IsOptional()
+  @Matches(/^[^\p{Extended_Pictographic}]+$/u, { message: 'name cannot contain emojis' })
   name?: string;
 
   @ApiProperty()
