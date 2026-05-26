@@ -15,6 +15,7 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { ReportsModule } from './reports/reports.module';
 import { CronModule } from './cron/cron.module';
 import { UsersModule } from './users/users.module';
+import { FirebaseModule } from './firebase/firebase.module';
 import { AuthMiddleware } from './common/middleware/auth.middleware';
 
 @Module({
@@ -30,6 +31,7 @@ import { AuthMiddleware } from './common/middleware/auth.middleware';
     ReportsModule,
     CronModule,
     UsersModule,
+    FirebaseModule,
   ],
 })
 export class AppModule implements NestModule {

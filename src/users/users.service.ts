@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { UserQueries } from './queries/users.queries';
+import { FcmTokenQueries } from './queries/fcm-token.queries';
+import { RegisterFcmTokenDto } from './dto/register-fcm-token.dto';
 import { UserItem, PaginatedUsersResponse } from './users.types';
 import { UpdateUserDto, ChangePasswordDto, AdminResetPasswordDto } from './dto/users.dto';
 import { UserRole, UserStatus } from '../common/enums';
@@ -16,7 +18,7 @@ import { ResultSetHeader } from 'mysql2';
 
 @Injectable()
 export class UsersService {
-  constructor(private db: DatabaseService) {}
+  constructor(private db: DatabaseService) { }
 
   async findAll(query: { page?: number; limit?: number; search?: string }): Promise<PaginatedUsersResponse> {
     const page = Number(query.page) > 0 ? Number(query.page) : 1;
@@ -90,7 +92,7 @@ export class UsersService {
 
       const existing = await this.db.query(UserQueries.CHECK_EMAIL_EXISTS, [dto.email, id]);
       if (existing.length > 0) throw new ConflictException('Email already in use');
-      
+
       fields.push('email = ?');
       values.push(dto.email);
     }
@@ -146,5 +148,16 @@ export class UsersService {
 
     await this.db.execute(UserQueries.SOFT_DELETE, [id]);
     return { message: 'User deleted successfully' };
+  }
+
+  async registerFcmToken(userId: number, dto: RegisterFcmTokenDto): Promise<void> {
+    const platform = dto.platform || 'android';
+    await this.db.execute(FcmTokenQueries.UPSERT_TOKEN, [
+      dto.fcmToken,
+      platform,
+      dto.deviceId,
+      userId,
+      dto.deviceId,
+    ]);
   }
 }

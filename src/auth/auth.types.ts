@@ -23,6 +23,9 @@ export interface TokenRow {
   refresh_token_hash: string;
   user_id: number;
   status: TokenStatus;
+  device_id?: string | null;
+  device_platform?: string | null;
+  fcm_token?: string | null;
 }
 
 export interface RegisterResponse {

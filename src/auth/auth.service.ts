@@ -126,7 +126,16 @@ export class AuthService {
 
     await this.db.execute(
       AuthQueries.INSERT_TOKEN,
-      [accessTokenHash, refreshTokenHash, expiredAt, TokenStatus.ACTIVE, user.id],
+      [
+        accessTokenHash,
+        refreshTokenHash,
+        expiredAt,
+        TokenStatus.ACTIVE,
+        user.id,
+        dto.deviceId || null,
+        dto.devicePlatform || null,
+        null,
+      ],
     );
 
     return {
@@ -203,6 +212,9 @@ export class AuthService {
         expiredAt,
         TokenStatus.ACTIVE,
         user.id,
+        matchedToken.device_id || null,
+        matchedToken.device_platform || null,
+        matchedToken.fcm_token || null,
       ],
     );
 

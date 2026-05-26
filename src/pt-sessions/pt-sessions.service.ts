@@ -6,6 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { FirebaseService } from '../firebase/firebase.service';
 import { BookSessionDto } from './dto/book-session.dto';
 import { SessionStatus, SessionSource, MembershipStatus, SlotStatus } from '../common/enums';
 import { ResultSetHeader, RowDataPacket } from 'mysql2';
@@ -31,7 +32,10 @@ export interface FindSessionsQuery {
 
 @Injectable()
 export class PtSessionsService {
-  constructor(private db: DatabaseService) { }
+  constructor(
+    private db: DatabaseService,
+    private firebaseService: FirebaseService
+  ) { }
 
   async findAll(query: FindSessionsQuery): Promise<PaginatedSessionsResponse | { success: boolean; message: string; statusCode: number }> {
     try {
@@ -114,7 +118,7 @@ export class PtSessionsService {
   }
 
   async bookSession(dto: BookSessionDto): Promise<SessionRow> {
-    return this.db.transaction<SessionRow>(async (conn) => {
+    const session = await this.db.transaction<SessionRow>(async (conn) => {
 
       const [memberRows] = await conn.query<MemberRow[]>(
         PtSessionQueries.LOCK_MEMBER,
@@ -227,10 +231,27 @@ export class PtSessionsService {
 
       return resultRows[0];
     });
+
+    try {
+      const member = await this.db.query<{ name: string }>('SELECT name FROM members WHERE id = ?', [session.member_id]);
+      const trainer = await this.db.query<{ user_id: number }>('SELECT user_id FROM trainers WHERE id = ?', [session.trainer_id]);
+      if (member.length > 0 && trainer.length > 0) {
+        await this.firebaseService.sendToUser(
+          trainer[0].user_id,
+          'New PT Session Booked 📅',
+          `A personal training session has been booked with member ${member[0].name} on ${session.session_date}.`,
+          { sessionId: String(session.id), type: 'SESSION_BOOKED' }
+        );
+      }
+    } catch (err) {
+      console.error('PT Booking push notification failed:', (err as Error).message);
+    }
+
+    return session;
   }
   
   async cancelSession(id: number): Promise<MessageResponse> {
-    return this.db.transaction<MessageResponse>(async (conn) => {
+    const result = await this.db.transaction<MessageResponse>(async (conn) => {
 
       const [sessionRows] = await conn.query<SessionRow[]>(
         PtSessionQueries.LOCK_CANCEL_STATUS,
@@ -270,6 +291,23 @@ export class PtSessionsService {
 
       return { message: 'Session cancelled successfully' };
     });
+
+    try {
+      const session = await this.findOne(id);
+      const trainer = await this.db.query<{ user_id: number }>('SELECT user_id FROM trainers WHERE id = ?', [session.trainer_id]);
+      if (trainer.length > 0) {
+        await this.firebaseService.sendToUser(
+          trainer[0].user_id,
+          'PT Session Cancelled ❌',
+          `Your session with member ${session.member_name} on ${session.session_date} has been cancelled.`,
+          { sessionId: String(id), type: 'SESSION_CANCELLED' }
+        );
+      }
+    } catch (err) {
+      console.error('PT Cancellation push notification failed:', (err as Error).message);
+    }
+
+    return result;
   }
 
   async completeSession(id: number): Promise<SessionRow> {
@@ -336,7 +374,7 @@ export class PtSessionsService {
       );
     }
 
-    return this.db.transaction<SessionRow>(async (conn) => {
+    const rescheduledSession = await this.db.transaction<SessionRow>(async (conn) => {
 
       const [newSlotRows] = await conn.query<SlotRow[]>(
         PtSessionQueries.GET_SLOT_BY_ID,
@@ -375,6 +413,22 @@ export class PtSessionsService {
 
       return finalRows[0];
     });
+
+    try {
+      const trainer = await this.db.query<{ user_id: number }>('SELECT user_id FROM trainers WHERE id = ?', [rescheduledSession.trainer_id]);
+      if (trainer.length > 0) {
+        await this.firebaseService.sendToUser(
+          trainer[0].user_id,
+          'PT Session Rescheduled 🔄',
+          `Your session with member ${rescheduledSession.member_name} has been rescheduled to ${rescheduledSession.session_date}.`,
+          { sessionId: String(sessionId), type: 'SESSION_RESCHEDULED' }
+        );
+      }
+    } catch (err) {
+      console.error('PT Reschedule push notification failed:', (err as Error).message);
+    }
+
+    return rescheduledSession;
   }
   
   async getMemberSessions(memberId: number): Promise<SessionRow[]> {

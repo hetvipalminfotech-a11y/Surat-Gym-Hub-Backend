@@ -3,7 +3,8 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { DatabaseService } from '../database/database.service';
+import { DatabaseService, SqlParam } from '../database/database.service';
+import { FirebaseService } from '../firebase/firebase.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { RenewMemberDto } from './dto/renew-member.dto';
@@ -16,7 +17,20 @@ import { MemberFilterDto } from './dto/member-filter.dto';
 
 @Injectable()
 export class MembersService {
-  constructor(private db: DatabaseService) { }
+  constructor(
+    private db: DatabaseService,
+    private firebaseService: FirebaseService
+  ) { }
+
+  private async notifyStaff(title: string, body: string, data?: Record<string, string>): Promise<void> {
+    await this.firebaseService.sendToRoles(
+      ['RECEPTIONIST', 'TRAINER'],
+      title,
+      body,
+      data
+    );
+  }
+
   async findAll(query: MemberFilterDto): Promise<PaginatedMembersResponse> {
     // Parse pagination safely
     const page = Number(query.page) > 0 ? Number(query.page) : 1;
@@ -45,8 +59,12 @@ export class MembersService {
     }
 
     if (query.planId) {
-      whereClauses.push('m.membership_plan_id = ?');
-      params.push(Number(query.planId));
+      const planIds = String(query.planId).split(',').map(Number).filter(id => !isNaN(id));
+      if (planIds.length > 0) {
+        const placeholders = planIds.map(() => '?').join(',');
+        whereClauses.push(`m.membership_plan_id IN (${placeholders})`);
+        params.push(...planIds);
+      }
     }
 
     const whereSQL = whereClauses.join(' AND ');
@@ -153,7 +171,7 @@ export class MembersService {
     }
 
     //  Transaction
-    return this.db.transaction(async (conn) => {
+    const createdMember = await this.db.transaction(async (conn) => {
       const [insertResult] = await conn.execute<ResultSetHeader>(
         MemberQueries.INSERT_MEMBER,
         [
@@ -195,6 +213,17 @@ export class MembersService {
       );
       return (rows as MemberRow[])[0];
     });
+
+    this.notifyStaff(
+      'New Member Registered 🏋️',
+      `Member ${createdMember.name} has registered on a new membership.`,
+      { memberId: String(createdMember.id), type: 'MEMBER_CREATED' }
+    ).catch(err => {
+      const error = err as Error;
+      console.error('Push notification failed:', error.message);
+    });
+
+    return createdMember;
   }
 
 
@@ -348,7 +377,7 @@ export class MembersService {
     const endStr = end.toISOString().split('T')[0];
 
     // ✅ Transaction
-    return this.db.transaction(async (conn) => {
+    const renewedMember = await this.db.transaction(async (conn) => {
       // ✅ Update member
       await conn.execute(MemberQueries.RENEW_UPDATE_MEMBER, [
         dto.planId,
@@ -383,6 +412,17 @@ export class MembersService {
 
       return (rows as MemberRow[])[0];
     });
+
+    this.notifyStaff(
+      'Membership Renewed 🔄',
+      `Member ${renewedMember.name} renewed their membership successfully.`,
+      { memberId: String(renewedMember.id), type: 'MEMBER_RENEWED' }
+    ).catch(err => {
+      const error = err as Error;
+      console.error('Push notification failed:', error.message);
+    });
+
+    return renewedMember;
   }
   async freeze(id: number, userId: number) {
     const member = await this.findOne(id);
@@ -413,7 +453,18 @@ export class MembersService {
       ]);
     });
 
-    return this.findOne(id);
+    const frozenMember = await this.findOne(id);
+
+    this.notifyStaff(
+      'Membership Frozen ❄️',
+      `Member ${frozenMember.name}'s membership has been frozen.`,
+      { memberId: String(frozenMember.id), type: 'MEMBER_FROZEN' }
+    ).catch(err => {
+      const error = err as Error;
+      console.error('Push notification failed:', error.message);
+    });
+
+    return frozenMember;
   }
   async unfreeze(id: number, userId: number) {
     const member = await this.findOne(id);
@@ -467,7 +518,18 @@ export class MembersService {
       ]);
     });
 
-    return this.findOne(id);
+    const unfrozenMember = await this.findOne(id);
+
+    this.notifyStaff(
+      'Membership Unfrozen 🔥',
+      `Member ${unfrozenMember.name}'s membership is active again.`,
+      { memberId: String(unfrozenMember.id), type: 'MEMBER_UNFROZEN' }
+    ).catch(err => {
+      const error = err as Error;
+      console.error('Push notification failed:', error.message);
+    });
+
+    return unfrozenMember;
   }
   async changePlan(id: number, dto: ChangePlanDto, userId: number) {
     const member = await this.findOne(id);
@@ -526,7 +588,7 @@ export class MembersService {
     const startStr = start.toISOString().split('T')[0];
     const endStr = end.toISOString().split('T')[0];
 
-    return this.db.transaction(async (conn) => {
+    const planChangedMember = await this.db.transaction(async (conn) => {
       // 1. Update member (IMMEDIATE CHANGE)
       await conn.execute(MemberQueries.CHANGE_PLAN_UPDATE_MEMBER, [
         dto.planId,
@@ -565,5 +627,16 @@ export class MembersService {
 
       return (rows as MemberRow[])[0];
     });
+
+    this.notifyStaff(
+      'Membership Plan Changed 📋',
+      `Member ${planChangedMember.name}'s plan was changed to ${plan.name}.`,
+      { memberId: String(planChangedMember.id), type: 'MEMBER_PLAN_CHANGED' }
+    ).catch(err => {
+      const error = err as Error;
+      console.error('Push notification failed:', error.message);
+    });
+
+    return planChangedMember;
   }
 }

@@ -26,8 +26,8 @@ export const AuthQueries = {
   GET_TRAINER_ID_BY_USER_ID: `SELECT id AS trainer_id FROM trainers WHERE user_id = ? AND status = 'ACTIVE' LIMIT 1`,
 
   INSERT_TOKEN: `
-    INSERT INTO tokens (access_token_hash, refresh_token_hash, expired_at, status, user_id)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO tokens (access_token_hash, refresh_token_hash, expired_at, status, user_id, device_id, device_platform, fcm_token)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `,
 
   FIND_ACTIVE_TOKENS: `

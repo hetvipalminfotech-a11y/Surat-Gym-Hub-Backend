@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { UpdateUserDto, ChangePasswordDto, AdminResetPasswordDto } from './dto/users.dto';
+import { RegisterFcmTokenDto } from './dto/register-fcm-token.dto';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums';
@@ -81,5 +82,14 @@ export class UsersController {
   @Roles(UserRole.ADMIN)
   async remove(@Param('id', ParseIntPipe) id: number): Promise<{ message: string }> {
     return this.usersService.remove(id);
+  }
+
+  @Post('fcm-token')
+  async registerFcmToken(
+    @Req() req: RequestWithUser,
+    @Body() dto: RegisterFcmTokenDto,
+  ): Promise<{ success: boolean; message: string }> {
+    await this.usersService.registerFcmToken(req.user.userId, dto);
+    return { success: true, message: 'FCM token registered successfully' };
   }
 }

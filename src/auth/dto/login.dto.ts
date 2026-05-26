@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsString, Matches } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEmail, IsNotEmpty, IsString, Matches, IsOptional } from 'class-validator';
 
 export class LoginDto {
    @ApiProperty()
@@ -12,4 +12,14 @@ export class LoginDto {
   @IsNotEmpty({ message: 'Password is required' })
   @Matches(/^[^\p{Extended_Pictographic}]+$/u, { message: 'Password cannot contain emojis' })
   password!: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  deviceId?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  devicePlatform?: string;
 }
