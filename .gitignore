@@ -81,4 +81,4 @@ docker-compose.override.yml
 prisma/dev.db
 prisma/dev.db-journal
 
-npm-cache   
+npm-cache   serviceAccountKey.json
